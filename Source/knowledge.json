@@ -917,7 +917,7 @@
   },
   {
     "question": "How does the AI work (Hybrid RAG)?",
-    "answer": "It has two brains: first, it checks our college's verified FAQ list in C++. If it finds the answer, it gives it immediately. If not, it asks Groq AI on the cloud to answer it naturally."
+    "answer": "The chatbot retrieves relevant information from its local knowledge base. When GROQ_API_KEY is configured, retrieved chunks are sent to Groq and its generated response is returned. If Groq is unavailable, or RAG generation fails with a sufficiently relevant match, a local knowledge answer is used; otherwise the chatbot reports that the information is unavailable."
   },
   {
     "question": "What files can it read?",
@@ -925,6 +925,6 @@
   },
   {
     "question": "Why is it fast and secure?",
-    "answer": "We keep the chat history and FAQs in memory (RAM) so it loads in less than 1 millisecond, and we added password rate limiting so nobody can brute-force the admin panel."
+    "answer": "The chatbot caches chat history and FAQs in memory to support quick responses, and password rate limiting helps protect the admin panel."
   }
 ]

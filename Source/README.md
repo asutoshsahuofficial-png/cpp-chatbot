@@ -107,7 +107,8 @@ ChatBot/
 ├── Notice/               # Project notices and related documents
 └── Source/
     ├── vendor/           # Local dependencies (marked.js, highlight.js, DOMPurify)
-    ├── .env              # Environment config (API Keys, Admin Pass) - Not committed
+    ├── .env              # Local environment config (not committed)
+    ├── .env.example      # Credential placeholders
     ├── run_updated.bat   # Windows run/launch helper script
     ├── chatbot.cpp       # Main C++ backend source code
     ├── chatbot_updated.exe # Compiled Windows executable
@@ -128,12 +129,8 @@ ChatBot/
 ### 1. Configure the Environment
 To run this project securely, you need to configure your environment variables:
 1. Navigate to the `Source` folder.
-2. Create a new file and name it exactly `.env` (ensure it does not have a `.txt` extension).
-3. Open `.env` in a text editor and add your credentials:
-   ```env
-   GROQ_API_KEY=your_groq_api_key_here
-   ADMIN_PASSWORD=your_secure_password
-   ```
+2. Copy `.env.example` to `.env` (ensure it does not have a `.txt` extension).
+3. Set your own values for `GROQ_API_KEY` and `ADMIN_PASSWORD` in `.env`. Keep this file local and do not commit it.
 
 ### 2. Install Build Tools
 The project relies on MSYS2 for compilation on Windows.

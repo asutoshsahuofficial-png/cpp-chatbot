@@ -1978,7 +1978,8 @@ HistoryTruncationResult truncateConversationHistory(
 
 json askGroqWithConversation(
     const std::string &userMessage,
-    const std::string &conversationId)
+    const std::string &conversationId,
+    const std::string &excludedEntryId = "")
 {
     const json systemMessage = {
         {"role", "system"},
@@ -1998,10 +1999,20 @@ json askGroqWithConversation(
 
     std::vector<HistoryMessage> conversationRecords;
     std::size_t matchedRecords = 0;
+    bool reachedExcludedEntry = excludedEntryId.empty();
 
     // Read the newest saved records first, but keep only this conversation.
     for (auto it = history.rbegin(); it != history.rend(); ++it)
     {
+        if (!reachedExcludedEntry)
+        {
+            if (it->id == excludedEntryId)
+            {
+                reachedExcludedEntry = true;
+            }
+            continue;
+        }
+
         const std::string historyConversationId =
             it->conversationId.empty() ? it->id : it->conversationId;
 
@@ -2612,31 +2623,6 @@ int main()
                 }
                 const std::string editedEntryId =
                     trim(jsonString(request, "edited_entry_id"));
-                if (!editedEntryId.empty())
-                {
-                    std::string historyError;
-                    const HistoryTruncationResult truncationResult =
-                        truncateConversationHistory(
-                            conversationId, editedEntryId, historyError);
-                    if (truncationResult == HistoryTruncationResult::EntryNotFound)
-                    {
-                        sendJson(
-                            res,
-                            404,
-                            {{"ok", false},
-                             {"error", "The conversation entry to edit was not found."}});
-                        return;
-                    }
-                    if (truncationResult == HistoryTruncationResult::WriteFailed)
-                    {
-                        sendJson(
-                            res,
-                            409,
-                            {{"ok", false},
-                             {"error", historyError}});
-                        return;
-                    }
-                }
 
                 std::cout
                     << "\n========================================\n"
@@ -2672,7 +2658,8 @@ int main()
                     if (!retrievedChunks.empty())
                     {
                         // True RAG: Knowledge Base Retrieval + LLM Synthesis
-                        answer = askGroqRAGWithConversation(message, conversationId, retrievedChunks);
+                        answer = askGroqRAGWithConversation(
+                            message, conversationId, retrievedChunks, editedEntryId);
                         if (answer.value("ok", false))
                         {
                             usedSource = "rag_ai";
@@ -2710,7 +2697,8 @@ int main()
                     // If no knowledge chunks retrieved, or RAG couldn't answer:
                     if (!answered)
                     {
-                        answer = askGroqWithConversation(message, conversationId);
+                        answer = askGroqWithConversation(
+                            message, conversationId, editedEntryId);
                         if (answer.value("ok", false))
                         {
                             usedSource = "groq_ai";
@@ -2754,6 +2742,31 @@ int main()
 
                 const std::string entryId = createId();
                 std::string historyError;
+
+                if (!editedEntryId.empty())
+                {
+                    const HistoryTruncationResult truncationResult =
+                        truncateConversationHistory(
+                            conversationId, editedEntryId, historyError);
+                    if (truncationResult == HistoryTruncationResult::EntryNotFound)
+                    {
+                        sendJson(
+                            res,
+                            404,
+                            {{"ok", false},
+                             {"error", "The conversation entry to edit was not found."}});
+                        return;
+                    }
+                    if (truncationResult == HistoryTruncationResult::WriteFailed)
+                    {
+                        sendJson(
+                            res,
+                            409,
+                            {{"ok", false},
+                             {"error", historyError}});
+                        return;
+                    }
+                }
 
                 const bool saved = appendHistoryRecord(
                     entryId,
