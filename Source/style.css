@@ -793,6 +793,32 @@ body.dark-mode .nav-item.active {
   border: 1px solid rgba(243, 156, 18, 0.3);
 }
 
+.badge-rag {
+  background: rgba(142, 68, 173, 0.15);
+  color: #8e44ad;
+  border: 1px solid rgba(142, 68, 173, 0.35);
+}
+
+.badge-rag-doc {
+  background: rgba(22, 160, 133, 0.15);
+  color: #16a085;
+  border: 1px solid rgba(22, 160, 133, 0.35);
+}
+
+.rag-sources-info {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.76rem;
+  color: var(--text-light, #888);
+  border-top: 1px dashed rgba(142, 68, 173, 0.25);
+  padding-top: 4px;
+}
+
+.rag-sources-info strong {
+  color: #8e44ad;
+  font-weight: 600;
+}
+
 
 
 /* =========================================================
@@ -5751,3 +5777,193 @@ body.dark-mode #history-section .history-item.active-preview {
 .input-bar .tool-btn {
   box-shadow: none !important;
 }
+
+/* =========================================================
+   USER QUESTION EDIT BUTTON & INLINE EDITOR STYLES
+========================================================= */
+
+.user-row {
+  margin-bottom: 28px !important;
+}
+
+.user-bubble {
+  position: relative !important;
+  overflow: visible !important;
+}
+
+.user-bubble .message-meta.timestamp {
+  justify-content: flex-start !important;
+  text-align: left !important;
+  margin-top: 10px !important;
+}
+
+.user-bubble .user-reaction-actions {
+  position: absolute !important;
+  bottom: -18px !important;
+  right: 15px !important;
+  background: #FFFFFF !important;
+  border-radius: 20px !important;
+  padding: 6px 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  border: 1px solid #F1F5F9 !important;
+  z-index: 5 !important;
+}
+
+body.dark-mode .user-bubble .user-reaction-actions {
+  background: var(--bg-card, #1E293B) !important;
+  border-color: var(--border-subtle, #334155) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+
+.user-reaction-actions button {
+  background: transparent !important;
+  border: none !important;
+  color: #94A3B8 !important;
+  cursor: pointer !important;
+  padding: 3px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  outline: none !important;
+  border-radius: 6px !important;
+  transition: color 0.15s ease, transform 0.15s ease !important;
+}
+
+.user-reaction-actions button:hover {
+  color: var(--brand-primary, #2D5A43) !important;
+  transform: scale(1.1) !important;
+}
+
+body.dark-mode .user-reaction-actions button:hover {
+  color: #34D399 !important;
+}
+
+/* Editing active on bubble */
+.user-bubble.is-editing,
+.user-bubble:has(.user-edit-container) {
+  min-width: min(340px, 92vw) !important;
+  width: min(560px, 92vw) !important;
+  padding-bottom: 16px !important;
+}
+
+.user-bubble.is-editing .user-reaction-actions,
+.user-bubble:has(.user-edit-container) .user-reaction-actions {
+  display: none !important;
+}
+
+.user-edit-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.user-edit-textarea {
+  width: 100% !important;
+  min-height: 44px !important;
+  max-height: 260px !important;
+  box-sizing: border-box !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-family: inherit !important;
+  font-size: 0.95rem !important;
+  line-height: 1.5 !important;
+  resize: none !important;
+  outline: none !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease !important;
+}
+
+.user-edit-textarea:focus {
+  border-color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.22) !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) !important;
+}
+
+.user-edit-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.user-edit-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+}
+
+.user-edit-cancel-btn {
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+  font-family: inherit !important;
+  cursor: pointer !important;
+  transition: all 0.18s ease !important;
+}
+
+.user-edit-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.28) !important;
+}
+
+.user-edit-save-btn {
+  background: #FFFFFF !important;
+  color: var(--brand-primary, #2D5A43) !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  font-family: inherit !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12) !important;
+  transition: all 0.18s ease !important;
+}
+
+.user-edit-save-btn:hover {
+  background: #F0FDF4 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18) !important;
+}
+
+.user-edit-save-btn:active {
+  transform: translateY(0) !important;
+}
+
+/* Dark mode overrides for inline editor */
+body.dark-mode .user-edit-textarea {
+  background: rgba(0, 0, 0, 0.35) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  color: #F8FAFC !important;
+}
+
+body.dark-mode .user-edit-textarea:focus {
+  border-color: rgba(255, 255, 255, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15) !important;
+}
+
+body.dark-mode .user-edit-cancel-btn {
+  background: rgba(0, 0, 0, 0.3) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+body.dark-mode .user-edit-cancel-btn:hover {
+  background: rgba(0, 0, 0, 0.45) !important;
+}
+
+body.dark-mode .user-edit-save-btn {
+  background: #FFFFFF !important;
+  color: #1B3B2B !important;
+}
+

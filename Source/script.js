@@ -78,10 +78,19 @@ function sanitizeStoredHtml(html) {
     const doc = parser.parseFromString(html, "text/html");
 
     const dangerous = doc.querySelectorAll(
-      "script, iframe, object, embed, form, style, link, meta, base, img.user-image-preview",
+      "script, iframe, object, embed, form, style, link, meta, base, img.user-image-preview, .user-edit-container",
     );
     dangerous.forEach(function (el) {
       el.remove();
+    });
+
+    doc.body.querySelectorAll(".is-editing").forEach(function (el) {
+      el.classList.remove("is-editing");
+    });
+    doc.body.querySelectorAll(
+      ".user-message-content, .message-meta, .user-reaction-actions",
+    ).forEach(function (el) {
+      el.style.removeProperty("display");
     });
 
     const allElements = doc.body.querySelectorAll("*");
@@ -198,18 +207,6 @@ function updateHeaderTime() {
 updateHeaderTime();
 
 setInterval(updateHeaderTime, 30000);
-
-/* ============================================================
-   TIMESTAMP DISPLAY
-============================================================ */
-
-function updateTimestampVisibility() {}/* ============================================================
-   SOUND
-============================================================ */
-
-let audioContext = null;
-
-function playNotificationSound() {}
 
 /* ============================================================
    API CONNECTION STATUS
@@ -370,16 +367,27 @@ function addUserMessage(text) {
 
   const row = document.createElement("div");
   row.className = "message-row user-row";
+  row.dataset.question = cleanText;
 
   row.innerHTML = `
     <div class="bubble user-bubble">
-      ${escapeHtml(cleanText).replace(/\n/g, "<br>")}
+      <div class="user-message-content">${escapeHtml(cleanText).replace(/\n/g, "<br>")}</div>
       <div class="message-meta timestamp"><span>${escapeHtml(getCurrentTime())}</span></div>
+      <div class="reaction-actions user-reaction-actions">
+        <button class="user-edit-btn" title="Edit question" aria-label="Edit question" type="button">
+          <i data-lucide="pencil" style="width: 15px; height: 15px;"></i>
+        </button>
+        <button class="copy-btn user-copy-btn" title="Copy question" aria-label="Copy question" type="button">
+          <i data-lucide="copy" style="width: 15px; height: 15px;"></i>
+        </button>
+      </div>
     </div>
     <div class="user-avatar"><i data-lucide="user"></i></div>`;
 
   chat.appendChild(row);
-  updateTimestampVisibility();
+  if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
+    lucide.createIcons();
+  }
   chat.scrollTop = chat.scrollHeight;
   if (typeof saveChatData === "function") saveChatData();
   return row;
@@ -389,7 +397,7 @@ function addUserMessage(text) {
    ASSISTANT MESSAGE
 ============================================================ */
 
-function addAssistantMessage(text, question = "", entryId = "", source = "") {
+function addAssistantMessage(text, question = "", entryId = "", source = "", retrievedSources = []) {
   if (!chat) {
     return null;
   }
@@ -407,7 +415,13 @@ function addAssistantMessage(text, question = "", entryId = "", source = "") {
   if (question) row.dataset.question = question;
 
   let sourceBadge = "";
-  if (source === "knowledge_file") {
+  if (source === "rag_ai") {
+    sourceBadge = `<span class="source-badge badge-rag" title="RAG: Knowledge Base Retrieval + Groq AI Generation">⚡ RAG AI</span>`;
+  } else if (source === "rag_document") {
+    sourceBadge = `<span class="source-badge badge-rag-doc" title="Document RAG: Uploaded Document Analysis + Groq AI">📄 Document RAG</span>`;
+  } else if (source === "groq_vision") {
+    sourceBadge = `<span class="source-badge badge-groq" title="Multimodal Vision AI Analysis">👁️ Vision AI</span>`;
+  } else if (source === "knowledge_file") {
     sourceBadge = `<span class="source-badge badge-knowledge">📚 Knowledge Base</span>`;
   } else if (source === "keyword_rule") {
     sourceBadge = `<span class="source-badge badge-keyword">⚡ Keyword Rule</span>`;
@@ -415,14 +429,25 @@ function addAssistantMessage(text, question = "", entryId = "", source = "") {
     sourceBadge = `<span class="source-badge badge-groq">🧠 Groq AI</span>`;
   }
 
+  let ragCitationHtml = "";
+  if (source === "rag_ai" && Array.isArray(retrievedSources) && retrievedSources.length > 0) {
+    const topics = retrievedSources
+      .map(s => escapeHtml(String(s?.question || s?.topic || "").trim()))
+      .filter(Boolean)
+      .slice(0, 2);
+    if (topics.length > 0) {
+      ragCitationHtml = `<div class="rag-sources-info"><strong>Grounding Knowledge:</strong> ${topics.join(" &bull; ")}</div>`;
+    }
+  }
+
   row.innerHTML = `
     <div class="assistant-avatar"><i data-lucide="bot"></i></div>
     <div class="bubble assistant-bubble">
       <div class="assistant-content">${formatAssistantText(cleanText)}</div>
+      ${ragCitationHtml}
       <div class="message-meta timestamp">${sourceBadge}<span>${escapeHtml(getCurrentTime())}</span></div>
       <div class="reaction-actions">
         <button class="copy-btn" title="Copy"><i data-lucide="copy" style="width: 16px; height: 16px;"></i></button>
-        
       </div>
     </div>`;
 
@@ -436,15 +461,11 @@ function addAssistantMessage(text, question = "", entryId = "", source = "") {
     });
   }
 
-  updateTimestampVisibility();
-
   if (wasNearBottom) {
     // Position the chat at the start/top of the new response
     // If the message is short, the browser caps the scroll naturally.
     chat.scrollTop = row.offsetTop - 24;
   }
-
-  playNotificationSound();
 
   saveChatData();
 
@@ -488,7 +509,6 @@ function addErrorMessage(prompt, errorMsg) {
   const wasNearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 150;
 
   chat.appendChild(row);
-  updateTimestampVisibility();
   
   if (wasNearBottom) {
     chat.scrollTop = row.offsetTop - 24;
@@ -532,8 +552,6 @@ function loadChatData() {
   }
 
   refreshAssistantFormatting(chat);
-
-  updateTimestampVisibility();
 
   const storedConversationId = getStorageItem("activeConversationId");
 
@@ -646,7 +664,7 @@ function getCleanBubbleText(bubble) {
 
   clone
     .querySelectorAll(
-      ".message-meta, .user-edit-row, .message-actions, button, time",
+      ".message-meta, .user-edit-row, .message-actions, .reaction-actions, .user-reaction-actions, .user-edit-container, button, time",
     )
     .forEach(function (element) {
       element.remove();
@@ -874,7 +892,6 @@ function openConversationFromHistory(id) {
       addAssistantMessage(message.answer || "", message.question || "", message.id || "", message.source || "");
     });
     setStorageItem("chatData", chat.innerHTML);
-    updateTimestampVisibility();
     return;
   }
 
@@ -904,8 +921,16 @@ function openConversationFromHistory(id) {
 
     row.innerHTML = `
     <div class="bubble user-bubble">
-      ${escapeHtml(record.question || "")}
+      <div class="user-message-content">${escapeHtml(record.question || "")}</div>
       <div class="message-meta timestamp"><span>${escapeHtml(getCurrentTime())}</span></div>
+      <div class="reaction-actions user-reaction-actions">
+        <button class="user-edit-btn" title="Edit question" aria-label="Edit question" type="button">
+          <i data-lucide="pencil" style="width: 15px; height: 15px;"></i>
+        </button>
+        <button class="copy-btn user-copy-btn" title="Copy question" aria-label="Copy question" type="button">
+          <i data-lucide="copy" style="width: 15px; height: 15px;"></i>
+        </button>
+      </div>
     </div>
     <div class="user-avatar"><i data-lucide="user"></i></div>
   `;
@@ -914,8 +939,6 @@ function openConversationFromHistory(id) {
 
     setStorageItem("chatData", chat.innerHTML);
   }
-
-  updateTimestampVisibility();
 
   navItems.forEach(function (nav) {
     nav.classList.remove("active");
@@ -1255,8 +1278,6 @@ function addLoadingMessage() {
 
   chat.appendChild(row);
 
-  updateTimestampVisibility();
-
   chat.scrollTop = chat.scrollHeight;
 
   return row;
@@ -1266,7 +1287,7 @@ function addLoadingMessage() {
    API
 ============================================================ */
 
-async function generateResponse(message) {
+async function generateResponse(message, options = {}) {
   if (typeof window.__hideUserTyping === 'function') window.__hideUserTyping();
   const cleanMessage = String(message || "").trim();
 
@@ -1317,6 +1338,7 @@ async function generateResponse(message) {
       body: JSON.stringify({
         message: cleanMessage,
         conversation_id: activeConversationId || "",
+        edited_entry_id: options.editedEntryId || "",
       }),
 
       signal: controller.signal,
@@ -1374,7 +1396,7 @@ async function generateResponse(message) {
       setStorageItem("activeConversationId", activeConversationId);
     }
 
-    addAssistantMessage(answer, cleanMessage, data.entry_id || "", data.source || "");
+    addAssistantMessage(answer, cleanMessage, data.entry_id || "", data.source || "", data.retrieved_knowledge || []);
 
     lastFailedPrompt = "";
 
@@ -1430,14 +1452,7 @@ async function generateResponse(message) {
 
 if (form && input) {
   form.addEventListener("submit", async function (event) {
-    /*
-     * The HTML already handles Edit mode.
-     */
     event.preventDefault();
-
-    if (input.dataset.editingMessage === "true") {
-      return;
-    }
 
     if (requestInProgress) {
       return;
@@ -1690,8 +1705,6 @@ function startNewChat() {
 
     </div>
   `;
-
-  updateTimestampVisibility();
 
   setStorageItem("chatData", chat.innerHTML);
 
@@ -2032,8 +2045,6 @@ function initializeChatbot() {
   renderHistory();
 
   renderSavedAnswers();
-
-  updateTimestampVisibility();
 
   updateHeaderTime();
 
@@ -2544,8 +2555,38 @@ window.addEventListener("online", function () {
       
       // Update badge!
       const source = data.source || "groq_ai";
+      const citationContainer = row.querySelector(".rag-sources-info");
+      const retrievedSources = Array.isArray(data.retrieved_knowledge)
+        ? data.retrieved_knowledge
+        : [];
+      const topics = retrievedSources
+        .map((item) => String(item?.question || item?.topic || "").trim())
+        .filter(Boolean)
+        .slice(0, 2);
+
+      if (source === "rag_ai" && topics.length > 0) {
+        const citation = document.createElement("div");
+        citation.className = "rag-sources-info";
+        const label = document.createElement("strong");
+        label.textContent = "Grounding Knowledge:";
+        citation.append(label, document.createTextNode(` ${topics.join(" • ")}`));
+        if (citationContainer) {
+          citationContainer.replaceWith(citation);
+        } else {
+          answerContainer.after(citation);
+        }
+      } else {
+        citationContainer?.remove();
+      }
+
       let newBadge = "";
-      if (source === "knowledge_file") {
+      if (source === "rag_ai") {
+        newBadge = `<span class="source-badge badge-rag" title="RAG: Knowledge Base Retrieval + Groq AI Generation">⚡ RAG AI</span>`;
+      } else if (source === "rag_document") {
+        newBadge = `<span class="source-badge badge-rag-doc" title="Document RAG: Uploaded Document Analysis + Groq AI">📄 Document RAG</span>`;
+      } else if (source === "groq_vision") {
+        newBadge = `<span class="source-badge badge-groq" title="Multimodal Vision AI Analysis">👁️ Vision AI</span>`;
+      } else if (source === "knowledge_file") {
         newBadge = `<span class="source-badge badge-knowledge">📚 Knowledge Base</span>`;
       } else if (source === "keyword_rule") {
         newBadge = `<span class="source-badge badge-keyword">⚡ Keyword Rule</span>`;
@@ -2561,11 +2602,6 @@ window.addEventListener("online", function () {
       row.dataset.refreshedAt = new Date().toISOString();
 
       saveChatData();
-      updateTimestampVisibility();
-
-      if (typeof playNotificationSound === "function") {
-        playNotificationSound();
-      }
 
       button.title = "Updated";
 
@@ -2636,10 +2672,57 @@ window.addEventListener("online", function () {
     return row;
   };
 
+  const addUserActionsToRow = (row) => {
+    if (!row || !row.classList.contains("user-row")) {
+      return;
+    }
+    const bubble = row.querySelector(".user-bubble");
+    if (!bubble) return;
+    if (bubble.querySelector(".user-reaction-actions")) return;
+
+    let contentEl = bubble.querySelector(".user-message-content");
+    if (!contentEl) {
+      const metaEl = bubble.querySelector(".message-meta");
+      const wrapper = document.createElement("div");
+      wrapper.className = "user-message-content";
+
+      const nodesToMove = [];
+      for (const node of Array.from(bubble.childNodes)) {
+        if (node === metaEl) break;
+        if (node.classList && (node.classList.contains("user-reaction-actions") || node.classList.contains("reaction-actions") || node.classList.contains("user-edit-container"))) continue;
+        nodesToMove.push(node);
+      }
+      nodesToMove.forEach(node => wrapper.appendChild(node));
+      if (metaEl) {
+        bubble.insertBefore(wrapper, metaEl);
+      } else {
+        bubble.appendChild(wrapper);
+      }
+    }
+
+    const actionsBox = document.createElement("div");
+    actionsBox.className = "reaction-actions user-reaction-actions";
+    actionsBox.innerHTML = `
+      ${row.dataset.hasFileAttachment === "true" ? "" : `<button class="user-edit-btn" title="Edit question" aria-label="Edit question" type="button">
+        <i data-lucide="pencil" style="width: 15px; height: 15px;"></i>
+      </button>`}
+      <button class="copy-btn user-copy-btn" title="Copy question" aria-label="Copy question" type="button">
+        <i data-lucide="copy" style="width: 15px; height: 15px;"></i>
+      </button>
+    `;
+    bubble.appendChild(actionsBox);
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+      lucide.createIcons();
+    }
+  };
+
   // Restore refresh metadata from saved chat HTML and add missing buttons.
   const enhanceExistingRows = () => {
     chatBox.querySelectorAll(".assistant-row").forEach((row) => {
       addRefreshButtonToRow(row);
+    });
+    chatBox.querySelectorAll(".user-row").forEach((row) => {
+      addUserActionsToRow(row);
     });
   };
 
@@ -2649,6 +2732,10 @@ window.addEventListener("online", function () {
       : `[File: ${file.name}] Read and analyze this file.`;
 
     const row = addUserMessage(text);
+    if (row) {
+      row.dataset.hasFileAttachment = "true";
+      row.querySelector(".user-edit-btn")?.remove();
+    }
     
     if (row && file && file.type && file.type.startsWith("image/")) {
       const bubble = row.querySelector(".user-bubble");
@@ -2674,6 +2761,7 @@ window.addEventListener("online", function () {
       }
     }
 
+    if (row) saveChatData();
     return row;
   };
 
@@ -2793,6 +2881,7 @@ window.addEventListener("online", function () {
         data.answer,
         `${storedQuestion}\n[Attached file: ${file.name}]`,
         data.entry_id || "",
+        data.source || "",
       );
 
       if (answerRow) {
@@ -3313,15 +3402,38 @@ if (chat) {
 document.addEventListener("click", function (event) {
   const btn = event.target.closest(".copy-btn");
   if (!btn) return;
-  const bubble = btn.closest(".assistant-bubble");
-  if (!bubble) return;
-  const content = bubble.querySelector(".assistant-content");
-  if (content) {
-    navigator.clipboard.writeText(content.textContent.trim());
+  const assistantBubble = btn.closest(".assistant-bubble");
+  const userBubble = btn.closest(".user-bubble");
+  if (!assistantBubble && !userBubble) return;
+
+  let textToCopy = "";
+  if (assistantBubble) {
+    const content = assistantBubble.querySelector(".assistant-content");
+    if (content) textToCopy = content.textContent.trim();
+  } else if (userBubble) {
+    const content = userBubble.querySelector(".user-message-content");
+    if (content) {
+      const clone = content.cloneNode(true);
+      clone.innerHTML = clone.innerHTML.replace(/<br\s*[\/]?>/gi, "\n");
+      textToCopy = clone.textContent.trim();
+    } else {
+      textToCopy = getCleanBubbleText(userBubble);
+    }
+  }
+
+  if (textToCopy) {
+    navigator.clipboard.writeText(textToCopy);
     const originalHTML = btn.innerHTML;
     btn.innerHTML = `<i data-lucide="check" style="width: 16px; height: 16px;"></i>`;
-    if (typeof lucide !== "undefined") lucide.createIcons();
-    setTimeout(() => { btn.innerHTML = originalHTML; if (typeof lucide !== "undefined") lucide.createIcons(); }, 2000);
+    if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
+      lucide.createIcons();
+    }
+    setTimeout(() => {
+      btn.innerHTML = originalHTML;
+      if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
+        lucide.createIcons();
+      }
+    }, 2000);
   }
 });
 
@@ -3865,7 +3977,7 @@ function generateAndDownloadExport(selectedHistory) {
         const bubble = row.querySelector(".bubble");
         if (bubble) {
           const clone = bubble.cloneNode(true);
-          clone.querySelectorAll(".message-meta, .user-edit-row, .message-actions, button, time, .typing-indicator").forEach(el => el.remove());
+          clone.querySelectorAll(".message-meta, .user-edit-row, .message-actions, .reaction-actions, .user-reaction-actions, .user-edit-container, button, time, .typing-indicator").forEach(el => el.remove());
           
           let text = "";
           if (clone.innerText !== undefined) {
@@ -3918,73 +4030,6 @@ function generateAndDownloadExport(selectedHistory) {
   }
 })();
 /* ============================================================
-   USER MESSAGE EDITING
-============================================================ */
-let editActive = false;
-
-function setEditing(button, text) {
-  if (!input) return;
-
-  document
-    .querySelectorAll(".edit-user-message-btn.editing")
-    .forEach((other) => other.classList.remove("editing"));
-
-  button.classList.add("editing");
-
-  input.value = text;
-  input.dataset.editingMessage = "true";
-
-  input.focus();
-  input.select();
-
-  editActive = true;
-
-  let label = document.getElementById("composerEditingLabel");
-
-  if (!label) {
-    label = document.createElement("div");
-    label.id = "composerEditingLabel";
-    label.style.cssText = `
-      position: absolute;
-      top: -24px;
-      left: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--primary);
-      background: var(--primary-light);
-      padding: 2px 8px;
-      border-radius: 4px;
-      pointer-events: none;
-      animation: fadeIn 0.2s ease-out;
-    `;
-    label.textContent = "Editing previous message";
-    
-    const wrapper = input.closest('.input-wrapper') || input.parentElement;
-    if (wrapper) {
-      if (getComputedStyle(wrapper).position === 'static') {
-        wrapper.style.position = 'relative';
-      }
-      wrapper.appendChild(label);
-    }
-  }
-}
-
-
-document.addEventListener("click", function (event) {
-  const editBtn = event.target.closest(".edit-user-message-btn");
-  if (editBtn) {
-    const bubble = editBtn.closest(".user-bubble");
-    if (bubble) {
-      const clone = bubble.cloneNode(true);
-      clone.querySelector(".user-edit-row")?.remove();
-      clone.innerHTML = clone.innerHTML.replace(/<br\s*[\/]?>/gi, "\n");
-      const text = clone.textContent.trim();
-      setEditing(editBtn, text);
-    }
-  }
-});
-
-/* ============================================================
    WELCOME SCREEN
 ============================================================ */
 (() => {
@@ -4006,5 +4051,231 @@ document.addEventListener("click", function (event) {
   }
 })();
 
+/* ============================================================
+   USER QUESTION EDITING MODULE
+============================================================ */
+(() => {
+  function handleUserMessageEdit(editBtn) {
+    if (!editBtn) return;
 
+    const chatContainer = document.getElementById("chat");
+    if (!chatContainer || !chatContainer.contains(editBtn)) return;
 
+    if (requestInProgress) {
+      alert("Please wait for the chatbot to finish responding before editing.");
+      return;
+    }
+
+    const row = editBtn.closest(".user-row");
+    if (!row) return;
+    if (row.dataset.hasFileAttachment === "true") return;
+
+    const bubble = row.querySelector(".user-bubble");
+    if (!bubble) return;
+
+    // Already in edit mode?
+    if (bubble.querySelector(".user-edit-container")) return;
+
+    // If another bubble is in edit mode, cancel that one first
+    const existingEdit = chatContainer.querySelector(".user-edit-container");
+    if (existingEdit) {
+      const cancelExisting = existingEdit.querySelector(".user-edit-cancel-btn");
+      if (cancelExisting) cancelExisting.click();
+      else existingEdit.remove();
+    }
+
+    // Extract current question text
+    let contentEl = bubble.querySelector(".user-message-content");
+    let currentText = "";
+    if (contentEl) {
+      const clone = contentEl.cloneNode(true);
+      clone.innerHTML = clone.innerHTML.replace(/<br\s*[\/]?>/gi, "\n");
+      currentText = clone.textContent.trim();
+    } else {
+      currentText = getCleanBubbleText(bubble);
+    }
+
+    row.dataset.originalQuestion = currentText;
+
+    // Hide viewing elements
+    if (contentEl) contentEl.style.display = "none";
+    const metaEl = bubble.querySelector(".message-meta");
+    if (metaEl) metaEl.style.display = "none";
+    const actionsEl = bubble.querySelector(".user-reaction-actions");
+    if (actionsEl) actionsEl.style.display = "none";
+    bubble.classList.add("is-editing");
+
+    // Create edit container
+    const editContainer = document.createElement("div");
+    editContainer.className = "user-edit-container";
+    editContainer.innerHTML = `
+      <textarea class="user-edit-textarea" rows="1" aria-label="Edit your question"></textarea>
+      <div class="user-edit-actions">
+        <button type="button" class="user-edit-cancel-btn">Cancel</button>
+        <button type="button" class="user-edit-save-btn">
+          <i data-lucide="send" style="width: 13px; height: 13px;"></i>
+          <span>Save &amp; Submit</span>
+        </button>
+      </div>
+    `;
+    bubble.appendChild(editContainer);
+    if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
+      lucide.createIcons();
+    }
+
+    const textarea = editContainer.querySelector(".user-edit-textarea");
+    textarea.value = currentText;
+
+    const autoResize = () => {
+      textarea.style.height = "auto";
+      textarea.style.height = Math.max(38, Math.min(textarea.scrollHeight, 260)) + "px";
+    };
+    textarea.addEventListener("input", autoResize);
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      autoResize();
+    }, 20);
+
+    const cancelEdit = () => {
+      editContainer.remove();
+      bubble.classList.remove("is-editing");
+      if (contentEl) contentEl.style.display = "";
+      if (metaEl) metaEl.style.display = "";
+      if (actionsEl) actionsEl.style.display = "";
+    };
+
+    editContainer.querySelector(".user-edit-cancel-btn").addEventListener("click", cancelEdit);
+
+    const submitEdit = async () => {
+      const newText = textarea.value.trim();
+      if (!newText) {
+        textarea.focus();
+        return;
+      }
+
+      if (newText === currentText) {
+        cancelEdit();
+        return;
+      }
+
+      const originalContentHtml = contentEl ? contentEl.innerHTML : null;
+      const originalQuestion = row.dataset.question;
+      const originalTime = bubble.querySelector(".message-meta.timestamp span")?.textContent;
+      const laterRows = [];
+      let laterRow = row.nextElementSibling;
+      while (laterRow) {
+        laterRows.push(laterRow);
+        laterRow = laterRow.nextElementSibling;
+      }
+
+      // Exit edit UI
+      editContainer.remove();
+      bubble.classList.remove("is-editing");
+      const assistantRow = row.nextElementSibling;
+      const editedEntryId =
+        assistantRow && assistantRow.classList.contains("assistant-row")
+          ? assistantRow.dataset.entryId || ""
+          : "";
+
+      if (!contentEl) {
+        contentEl = document.createElement("div");
+        contentEl.className = "user-message-content";
+        if (metaEl) bubble.insertBefore(contentEl, metaEl);
+        else bubble.appendChild(contentEl);
+      }
+      contentEl.innerHTML = escapeHtml(newText).replace(/\n/g, "<br>");
+      contentEl.style.display = "";
+      row.dataset.question = newText;
+
+      const timeSpan = bubble.querySelector(".message-meta.timestamp span");
+      if (timeSpan) {
+        timeSpan.textContent = getCurrentTime();
+      }
+      if (metaEl) metaEl.style.display = "";
+      if (actionsEl) actionsEl.style.display = "";
+
+      // Remove all sibling rows after this row (subsequent responses/turns)
+      let next = row.nextElementSibling;
+      while (next) {
+        const toRemove = next;
+        next = next.nextElementSibling;
+        toRemove.remove();
+      }
+
+      saveChatData();
+
+      const restoreEditedTurn = () => {
+        if (originalContentHtml === null) {
+          contentEl?.remove();
+        } else if (contentEl) {
+          contentEl.innerHTML = originalContentHtml;
+          contentEl.style.display = "";
+        }
+        if (originalQuestion === undefined) delete row.dataset.question;
+        else row.dataset.question = originalQuestion;
+        if (originalTime !== undefined) {
+          const timeSpan = bubble.querySelector(".message-meta.timestamp span");
+          if (timeSpan) timeSpan.textContent = originalTime;
+        }
+        if (metaEl) metaEl.style.display = "";
+        if (actionsEl) actionsEl.style.display = "";
+
+        let remainingRow = row.nextElementSibling;
+        while (remainingRow) {
+          const toRemove = remainingRow;
+          remainingRow = remainingRow.nextElementSibling;
+          toRemove.remove();
+        }
+        laterRows.forEach((savedRow) => chatContainer.appendChild(savedRow));
+        saveChatData();
+      };
+
+      // Trigger response generation
+      requestInProgress = true;
+      const sendButton = form ? form.querySelector('button[type="submit"]') : null;
+      if (input) input.disabled = true;
+      if (sendButton) sendButton.disabled = true;
+
+      let responseGenerated = false;
+      try {
+        responseGenerated = await generateResponse(newText, { editedEntryId });
+      } catch (err) {
+        console.error("Error generating response after edit:", err);
+        addErrorMessage(newText, err?.message);
+      } finally {
+        requestInProgress = false;
+        if (input) {
+          input.disabled = false;
+          input.focus();
+        }
+        if (sendButton) sendButton.disabled = false;
+      }
+      if (!responseGenerated && row.isConnected && chatContainer.contains(row)) {
+        restoreEditedTurn();
+      }
+    };
+
+    editContainer.querySelector(".user-edit-save-btn").addEventListener("click", submitEdit);
+
+    textarea.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEdit();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submitEdit();
+      }
+    });
+  }
+
+  // Delegated click handler for user edit button
+  document.addEventListener("click", function (e) {
+    const editBtn = e.target.closest(".user-edit-btn");
+    if (editBtn) {
+      e.preventDefault();
+      handleUserMessageEdit(editBtn);
+    }
+  });
+})();

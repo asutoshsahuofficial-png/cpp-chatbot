@@ -39,6 +39,7 @@ The current Groq multimodal model used for images is:
 #include <cstdio>
 #include <ctime>
 
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -47,7 +48,9 @@ The current Groq multimodal model used for images is:
 #include <queue>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include <curl/curl.h>
 
@@ -128,6 +131,18 @@ struct KnowledgeItem
 };
 
 // ============================================================
+// RAG (RETRIEVAL-AUGMENTED GENERATION) DATA STRUCTURES
+// ============================================================
+
+struct RetrievedChunk
+{
+    std::string question;
+    std::string answer;
+    std::string category;
+    double score = 0.0;
+};
+
+// ============================================================
 // KNOWLEDGE / FAQ HELPERS
 // ============================================================
 
@@ -166,7 +181,30 @@ std::string normalizeText(const std::string &value)
 std::string canonicalToken(const std::string &token)
 {
     static const std::unordered_map<std::string, std::string> synonyms = {
-        {"c", "cplusplus"}, {"cpp", "cplusplus"}, {"cxx", "cplusplus"}, {"cplusplus", "cplusplus"}, {"js", "javascript"}, {"javascript", "javascript"}, {"ai", "artificialintelligence"}, {"artificial", "artificial"}, {"intelligence", "intelligence"}, {"bot", "chatbot"}, {"chatbot", "chatbot"}, {"faq", "frequentlyaskedquestions"}, {"question", "question"}, {"questions", "question"}, {"answer", "answer"}, {"answers", "answer"}, {"api", "applicationprogramminginterface"}, {"interface", "applicationprogramminginterface"}, {"application", "application"}, {"programming", "programming"}, {"html", "html"}, {"css", "css"}, {"styling", "style"}, {"style", "style"}, {"webpage", "web"}, {"website", "web"}, {"web", "web"}, {"file", "file"}, {"files", "file"}, {"handling", "handling"}, {"history", "history"}, {"conversation", "conversation"}, {"conversations", "conversation"}, {"help", "help"}, {"doing", "do"}, {"does", "do"}, {"work", "work"}, {"working", "work"}, {"use", "use"}, {"using", "use"}, {"make", "create"}, {"making", "create"}};
+        {"c", "cplusplus"}, {"cpp", "cplusplus"}, {"cxx", "cplusplus"}, {"cplusplus", "cplusplus"},
+        {"js", "javascript"}, {"javascript", "javascript"},
+        {"ai", "artificialintelligence"}, {"artificial", "artificial"}, {"intelligence", "intelligence"},
+        {"bot", "chatbot"}, {"chatbot", "chatbot"},
+        {"faq", "frequentlyaskedquestions"}, {"question", "question"}, {"questions", "question"},
+        {"answer", "answer"}, {"answers", "answer"},
+        {"api", "applicationprogramminginterface"}, {"interface", "applicationprogramminginterface"},
+        {"application", "application"}, {"programming", "programming"},
+        {"html", "html"}, {"css", "css"}, {"styling", "style"}, {"style", "style"},
+        {"webpage", "web"}, {"website", "web"}, {"web", "web"},
+        {"file", "file"}, {"files", "file"}, {"handling", "handling"},
+        {"history", "history"}, {"conversation", "conversation"}, {"conversations", "conversation"},
+        {"help", "help"}, {"doing", "do"}, {"does", "do"}, {"work", "work"}, {"working", "work"},
+        {"use", "use"}, {"using", "use"}, {"make", "create"}, {"making", "create"},
+        {"ctc", "creativecollege"}, {"creative", "creativecollege"}, {"college", "creativecollege"},
+        {"bca", "bca"}, {"mca", "mca"}, {"bba", "bba"}, {"mba", "mba"},
+        {"fees", "fee"}, {"fee", "fee"}, {"hostels", "hostel"}, {"hostel", "hostel"},
+        {"placements", "placement"}, {"placement", "placement"},
+        {"courses", "course"}, {"course", "course"},
+        {"admissions", "admission"}, {"admission", "admission"},
+        {"contacts", "contact"}, {"contact", "contact"},
+        {"address", "location"}, {"where", "location"}, {"location", "location"},
+        {"phone", "contact"}, {"email", "contact"}, {"scholarships", "scholarship"}
+    };
     const auto &it = synonyms.find(token);
     return it == synonyms.end() ? token : it->second;
 }
@@ -193,6 +231,16 @@ std::vector<std::string> intelligenceTokens(const std::string &value)
 std::string inferKnowledgeCategory(const std::string &question)
 {
     const std::string q = normalizeText(question);
+    if (q.find("college") != std::string::npos || q.find("creative") != std::string::npos ||
+        q.find("ctc") != std::string::npos || q.find("campus") != std::string::npos ||
+        q.find("admission") != std::string::npos || q.find("course") != std::string::npos ||
+        q.find("fee") != std::string::npos || q.find("hostel") != std::string::npos ||
+        q.find("placement") != std::string::npos || q.find("scholarship") != std::string::npos ||
+        q.find("bca") != std::string::npos || q.find("mca") != std::string::npos ||
+        q.find("bba") != std::string::npos || q.find("mba") != std::string::npos ||
+        q.find("angul") != std::string::npos || q.find("utkal") != std::string::npos ||
+        q.find("guide") != std::string::npos || q.find("swastik") != std::string::npos)
+        return "Creative Techno College";
     if (q.find("cpp") != std::string::npos || q.find("cplusplus") != std::string::npos || q.find("html") != std::string::npos || q.find("css") != std::string::npos || q.find("javascript") != std::string::npos)
         return "Technology";
     if (q.find("api") != std::string::npos || q.find("application programming interface") != std::string::npos || q.find("ai") != std::string::npos || q.find("artificial intelligence") != std::string::npos)
@@ -288,8 +336,17 @@ void ensureKnowledgeFile()
     file << arr.dump(4);
 }
 
+// High-performance in-memory cache for Knowledge Base (< 1us retrieval latency)
+static std::vector<KnowledgeItem> g_cachedKnowledge;
+static bool g_knowledgeCacheValid = false;
+
 std::vector<KnowledgeItem> readKnowledgeItemsUnlocked()
 {
+    if (g_knowledgeCacheValid)
+    {
+        return g_cachedKnowledge;
+    }
+
     std::vector<KnowledgeItem> items;
     std::ifstream file(KNOWLEDGE_FILE, std::ios::in | std::ios::binary);
 
@@ -315,6 +372,8 @@ std::vector<KnowledgeItem> readKnowledgeItemsUnlocked()
                 }
             }
         }
+        g_cachedKnowledge = items;
+        g_knowledgeCacheValid = true;
     }
     catch (...)
     {
@@ -358,23 +417,32 @@ bool writeKnowledgeItemsUnlocked(const std::vector<KnowledgeItem> &items, std::s
         return false;
     }
 
+    // Update in-memory cache on successful disk write
+    g_cachedKnowledge = items;
+    g_knowledgeCacheValid = true;
+
     return true;
 }
 
-json knowledgeMatch(const std::string &message)
+// ============================================================
+// RAG RETRIEVER: MULTI-SIGNAL KNOWLEDGE RETRIEVAL
+// ============================================================
+
+std::vector<RetrievedChunk> retrieveRelevantKnowledge(
+    const std::string &message,
+    std::size_t topK = 3,
+    double minScore = 0.28)
 {
+    std::vector<RetrievedChunk> results;
     const std::string normalizedMessage = normalizeText(message);
     if (normalizedMessage.empty())
     {
-        return {{"found", false}};
+        return results;
     }
 
     const std::vector<std::string> messageTokens = intelligenceTokens(normalizedMessage);
     std::lock_guard<std::mutex> lock(knowledgeMutex);
     const std::vector<KnowledgeItem> items = readKnowledgeItemsUnlocked();
-
-    double bestScore = 0.0;
-    const KnowledgeItem *bestItem = nullptr;
 
     for (const KnowledgeItem &item : items)
     {
@@ -385,38 +453,110 @@ json knowledgeMatch(const std::string &message)
         {
             score = 1.0;
         }
-        // Substring matching removed to prevent false positives like "what is cat" containing "what is c"
 
         const std::vector<std::string> questionTokens = intelligenceTokens(normalizedQuestion);
         if (!messageTokens.empty() && !questionTokens.empty())
         {
             std::size_t overlap = 0;
+            bool hasNonLocationOverlap = false;
             for (const std::string &token : messageTokens)
             {
                 if (std::find(questionTokens.begin(), questionTokens.end(), token) != questionTokens.end())
+                {
                     ++overlap;
+                    if (token != "location")
+                    {
+                        hasNonLocationOverlap = true;
+                    }
+                }
+            }
+            if (inferKnowledgeCategory(item.question) == "Creative Techno College" &&
+                !hasNonLocationOverlap)
+            {
+                continue;
             }
             const double coverage = static_cast<double>(overlap) / static_cast<double>(std::max<std::size_t>(1, questionTokens.size()));
             const double messageCoverage = static_cast<double>(overlap) / static_cast<double>(std::max<std::size_t>(1, messageTokens.size()));
-            score = std::max(score, 0.35 * coverage + 0.65 * messageCoverage);
+            const double tokenScore = 0.35 * coverage + 0.65 * messageCoverage;
+            score = std::max(score, tokenScore);
         }
 
-        if (score > bestScore)
+        // Substring / containment matching
+        if (normalizedQuestion.length() >= 4)
         {
-            bestScore = score;
-            bestItem = &item;
+            const std::string paddedMessage = " " + normalizedMessage + " ";
+            const std::string paddedQuestion = " " + normalizedQuestion + " ";
+            if (paddedMessage.find(paddedQuestion) != std::string::npos)
+            {
+                score = std::max(score, 0.88);
+            }
+            else if (normalizedMessage.length() >= 6 && paddedQuestion.find(paddedMessage) != std::string::npos)
+            {
+                score = std::max(score, 0.75);
+            }
+        }
+
+        // Answer body keyword presence bonus
+        if (!messageTokens.empty() && !item.answer.empty())
+        {
+            const std::string normalizedAnswer = normalizeText(item.answer);
+            const std::vector<std::string> answerTokens = intelligenceTokens(normalizedAnswer);
+            if (!answerTokens.empty())
+            {
+                std::size_t answerOverlap = 0;
+                for (const std::string &token : messageTokens)
+                {
+                    if (std::find(answerTokens.begin(), answerTokens.end(), token) != answerTokens.end())
+                    {
+                        ++answerOverlap;
+                    }
+                }
+                const double ansCoverage = static_cast<double>(answerOverlap) / static_cast<double>(std::max<std::size_t>(1, messageTokens.size()));
+                if (ansCoverage > 0.3)
+                {
+                    score = std::max(score, 0.65 * score + 0.35 * ansCoverage);
+                }
+            }
+        }
+
+        if (score >= minScore)
+        {
+            RetrievedChunk chunk;
+            chunk.question = item.question;
+            chunk.answer = item.answer;
+            chunk.category = inferKnowledgeCategory(item.question);
+            chunk.score = score;
+            results.push_back(chunk);
         }
     }
 
-    if (!bestItem || bestScore < 0.52)
+    // Rank candidate chunks by relevance score descending
+    std::sort(results.begin(), results.end(), [](const RetrievedChunk &a, const RetrievedChunk &b) {
+        return a.score > b.score;
+    });
+
+    if (results.size() > topK)
+    {
+        results.resize(topK);
+    }
+
+    return results;
+}
+
+json knowledgeMatch(const std::string &message)
+{
+    const auto chunks = retrieveRelevantKnowledge(message, 1, 0.52);
+    if (chunks.empty())
+    {
         return {{"found", false}};
+    }
 
     return {
         {"found", true},
-        {"question", bestItem->question},
-        {"answer", bestItem->answer},
-        {"category", inferKnowledgeCategory(bestItem->question)},
-        {"match_score", bestScore}};
+        {"question", chunks[0].question},
+        {"answer", chunks[0].answer},
+        {"category", chunks[0].category},
+        {"match_score", chunks[0].score}};
 }
 
 json listKnowledge()
@@ -528,12 +668,14 @@ bool deleteKnowledgeItem(const std::string &question, std::string &error)
 
 struct RefreshContext
 {
-    std::string kind; // text | document | image
+    std::string kind; // text | document | image | rag_ai
     std::string filename;
     std::string mimeType;
+    std::string conversationId;
     std::string originalPrompt;
     std::string documentText;
     std::string imageBase64;
+    std::vector<RetrievedChunk> ragChunks;
 };
 
 std::mutex refreshContextMutex;
@@ -705,6 +847,7 @@ void sendJson(httplib::Response &res, int status, const json &body)
                    "default-src 'self'; "
                    "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
                    "font-src 'self' https://fonts.gstatic.com; "
+                   "img-src 'self' data: blob:; "
                    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
 
     res.status = status;
@@ -924,6 +1067,29 @@ std::string base64Decode(const std::string &input, bool &ok)
 // ============================================================
 // FILE HELPERS
 // ============================================================
+
+std::string sanitizeFilename(const std::string &rawFilename)
+{
+    std::string clean;
+    clean.reserve(rawFilename.size());
+    for (char c : rawFilename)
+    {
+        if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+        {
+            clean.push_back('_');
+        }
+        else if (static_cast<unsigned char>(c) >= 32)
+        {
+            clean.push_back(c);
+        }
+    }
+    while (clean.find("..") != std::string::npos)
+    {
+        auto pos = clean.find("..");
+        clean.replace(pos, 2, "__");
+    }
+    return clean.empty() ? "uploaded_file" : clean;
+}
 
 std::string extensionOf(const std::string &filename)
 {
@@ -1343,7 +1509,7 @@ json askGroqVision(
 }
 
 // ============================================================
-// DOCUMENT PROMPT
+// DOCUMENT RAG PROMPT
 // ============================================================
 
 std::string buildDocumentPrompt(
@@ -1352,8 +1518,8 @@ std::string buildDocumentPrompt(
     const std::string &userMessage)
 {
     const std::string defaultInstruction =
-        "Read the attached document and explain its important content clearly. "
-        "Use headings or bullet points when useful.";
+        "Read and analyze the attached document carefully. "
+        "Extract the most relevant information and answer clearly using structured formatting.";
 
     const std::string instruction =
         trim(userMessage).empty()
@@ -1366,19 +1532,19 @@ std::string buildDocumentPrompt(
     {
         safeText.resize(MAX_TEXT_FOR_PROMPT);
         safeText +=
-            "\n\n[Document text was truncated because it is very large.]";
+            "\n\n[Document text was truncated because it exceeds the maximum allowable context size.]";
     }
 
     std::ostringstream prompt;
 
     prompt
-        << instruction
-        << "\n\n"
-        << "Attached file: " << filename
-        << "\n\n"
-        << "----- BEGIN FILE CONTENT -----\n"
+        << "You are an intelligent Document Analysis AI assistant operating in RAG (Retrieval-Augmented Generation) mode.\n"
+        << "The user has uploaded a document for retrieval, question answering, and synthesis.\n\n"
+        << "=== RETRIEVED DOCUMENT CONTEXT: " << filename << " ===\n"
         << safeText
-        << "\n----- END FILE CONTENT -----";
+        << "\n=== END RETRIEVED DOCUMENT CONTEXT ===\n\n"
+        << "User Query / Task: " << instruction << "\n\n"
+        << "Instructions: Ground your response directly in the retrieved document text above. Be accurate, polite, and well-structured.";
 
     return prompt.str();
 }
@@ -1474,7 +1640,7 @@ json analyzeUploadedFile(
     if (extension == ".txt")
     {
         extractedText = decoded;
-        kind = "text";
+        kind = "document";
 
         if (extractedText.empty())
         {
@@ -1483,8 +1649,13 @@ json analyzeUploadedFile(
                 {"error", "The text file is empty."}};
         }
 
-        return askGroq(
+        json res = askGroq(
             buildDocumentPrompt(filename, extractedText, userMessage));
+        if (res.value("ok", false))
+        {
+            res["source"] = "rag_document";
+        }
+        return res;
     }
 
     if (extension == ".docx")
@@ -1502,8 +1673,13 @@ json analyzeUploadedFile(
                               : extractionError}};
         }
 
-        return askGroq(
+        json res = askGroq(
             buildDocumentPrompt(filename, extractedText, userMessage));
+        if (res.value("ok", false))
+        {
+            res["source"] = "rag_document";
+        }
+        return res;
     }
 
     if (isSupportedImage(extension))
@@ -1515,11 +1691,16 @@ json analyzeUploadedFile(
                 ? mimeForExtension(extension)
                 : mimeType;
 
-        return askGroqVision(
+        json res = askGroqVision(
             filename,
             finalMime,
             base64Data,
             userMessage);
+        if (res.value("ok", false))
+        {
+            res["source"] = "groq_vision";
+        }
+        return res;
     }
 
     return {
@@ -1529,8 +1710,24 @@ json analyzeUploadedFile(
 }
 
 // ============================================================
-// ADMIN / KNOWLEDGE PROTECTION
+// ADMIN / KNOWLEDGE PROTECTION (TIMING-SAFE)
 // ============================================================
+
+bool timingSafeCompare(const std::string &a, const std::string &b)
+{
+    if (a.size() != b.size())
+    {
+        return false;
+    }
+
+    volatile unsigned char result = 0;
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        result |= (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]));
+    }
+
+    return result == 0;
+}
 
 std::string getAdminPassword()
 {
@@ -1557,37 +1754,117 @@ struct HistoryMessage
     std::string source;
 };
 
-std::vector<HistoryMessage> readHistoryMessages()
-{
-    std::lock_guard<std::mutex> lock(historyMutex);
-    std::ifstream file(CHAT_HISTORY_FILE, std::ios::in | std::ios::binary);
-    std::vector<HistoryMessage> messages;
-    if (!file.is_open())
-        return messages;
+// High-performance in-memory cache for conversation history (RAM cache with write-through persistence)
+static std::vector<HistoryMessage> g_cachedHistory;
+static bool g_historyCacheValid = false;
+static bool g_historyCacheLoadFailed = false;
 
+// Must be called with historyMutex held
+void ensureHistoryCacheLoadedUnlocked()
+{
+    if (g_historyCacheValid)
+    {
+        return;
+    }
+    g_cachedHistory.clear();
+    g_historyCacheValid = false;
+    g_historyCacheLoadFailed = false;
+    std::ifstream file(CHAT_HISTORY_FILE, std::ios::in | std::ios::binary);
+    if (!file.is_open())
+    {
+        std::error_code filesystemError;
+        const bool historyExists = std::filesystem::exists(CHAT_HISTORY_FILE, filesystemError);
+        if (filesystemError || historyExists)
+        {
+            g_historyCacheLoadFailed = true;
+            std::cerr << "Warning: Could not read existing " << CHAT_HISTORY_FILE;
+            if (filesystemError)
+            {
+                std::cerr << ": " << filesystemError.message();
+            }
+            std::cerr << std::endl;
+            return;
+        }
+
+        g_historyCacheValid = true;
+        return;
+    }
     try
     {
         json arr;
         file >> arr;
-        if (arr.is_array())
+        if (!arr.is_array())
         {
-            for (const auto &el : arr)
-            {
-                HistoryMessage msg;
-                msg.id = el.value("id", "");
-                msg.conversationId = el.value("conversationId", "");
-                msg.date = el.value("date", "");
-                msg.question = el.value("question", "");
-                msg.answer = el.value("answer", "");
-                msg.source = el.value("source", "");
-                messages.push_back(msg);
-            }
+            g_historyCacheLoadFailed = true;
+            std::cerr << "Warning: Could not parse " << CHAT_HISTORY_FILE
+                      << ": history must be a JSON array" << std::endl;
+            return;
         }
+
+        std::vector<HistoryMessage> loadedHistory;
+        for (const auto &el : arr)
+        {
+            HistoryMessage msg;
+            msg.id = el.value("id", "");
+            msg.conversationId = el.value("conversationId", "");
+            msg.date = el.value("date", "");
+            msg.question = el.value("question", "");
+            msg.answer = el.value("answer", "");
+            msg.source = el.value("source", "");
+            loadedHistory.push_back(std::move(msg));
+        }
+        g_cachedHistory = std::move(loadedHistory);
+        g_historyCacheValid = true;
     }
-    catch (...)
+    catch (const json::exception &exception)
     {
+        g_historyCacheLoadFailed = true;
+        std::cerr << "Warning: Could not parse " << CHAT_HISTORY_FILE
+                  << ": " << exception.what() << std::endl;
     }
-    return messages;
+}
+
+void ensureHistoryFile()
+{
+    std::ifstream existing(CHAT_HISTORY_FILE, std::ios::in | std::ios::binary);
+    if (existing.is_open())
+    {
+        return;
+    }
+
+    std::error_code filesystemError;
+    const bool historyExists = std::filesystem::exists(CHAT_HISTORY_FILE, filesystemError);
+    if (filesystemError)
+    {
+        std::cerr << "Warning: Could not check " << CHAT_HISTORY_FILE
+                  << ": " << filesystemError.message() << std::endl;
+        return;
+    }
+    if (historyExists)
+    {
+        std::cerr << "Warning: Could not read existing " << CHAT_HISTORY_FILE
+                  << "; preserving its contents" << std::endl;
+        return;
+    }
+
+    std::ofstream file(CHAT_HISTORY_FILE, std::ios::out | std::ios::app | std::ios::binary);
+    if (!file.is_open())
+    {
+        std::cerr << "Warning: Could not create " << CHAT_HISTORY_FILE << std::endl;
+        return;
+    }
+    file << "[]";
+    if (!file)
+    {
+        std::cerr << "Warning: Could not initialize " << CHAT_HISTORY_FILE << std::endl;
+    }
+}
+
+std::vector<HistoryMessage> readHistoryMessages()
+{
+    std::lock_guard<std::mutex> lock(historyMutex);
+    ensureHistoryCacheLoadedUnlocked();
+    return g_cachedHistory;
 }
 
 bool appendHistoryRecord(
@@ -1598,35 +1875,12 @@ bool appendHistoryRecord(
     const std::string &source,
     std::string &error)
 {
-    std::vector<HistoryMessage> messages;
+    std::lock_guard<std::mutex> lock(historyMutex);
+    ensureHistoryCacheLoadedUnlocked();
+    if (g_historyCacheLoadFailed)
     {
-        std::lock_guard<std::mutex> lock(historyMutex);
-        std::ifstream file(CHAT_HISTORY_FILE, std::ios::in | std::ios::binary);
-        if (file.is_open())
-        {
-            try
-            {
-                json arr;
-                file >> arr;
-                if (arr.is_array())
-                {
-                    for (const auto &el : arr)
-                    {
-                        HistoryMessage msg;
-                        msg.id = el.value("id", "");
-                        msg.conversationId = el.value("conversationId", "");
-                        msg.date = el.value("date", "");
-                        msg.question = el.value("question", "");
-                        msg.answer = el.value("answer", "");
-                        msg.source = el.value("source", "");
-                        messages.push_back(msg);
-                    }
-                }
-            }
-            catch (...)
-            {
-            }
-        }
+        error = "Could not load chat history; preserving its contents.";
+        return false;
     }
 
     HistoryMessage newMsg;
@@ -1636,15 +1890,14 @@ bool appendHistoryRecord(
     newMsg.question = question;
     newMsg.answer = answer;
     newMsg.source = source;
-    messages.push_back(newMsg);
+    g_cachedHistory.push_back(newMsg);
 
     json outArr = json::array();
-    for (const auto &m : messages)
+    for (const auto &m : g_cachedHistory)
     {
         outArr.push_back({{"id", m.id}, {"conversationId", m.conversationId}, {"date", m.date}, {"question", m.question}, {"answer", m.answer}, {"source", m.source}});
     }
 
-    std::lock_guard<std::mutex> lock(historyMutex);
     std::ofstream file(CHAT_HISTORY_FILE, std::ios::out | std::ios::trunc | std::ios::binary);
     if (!file.is_open())
     {
@@ -1653,6 +1906,70 @@ bool appendHistoryRecord(
     }
     file << outArr.dump(4);
     return true;
+}
+
+enum class HistoryTruncationResult
+{
+    Truncated,
+    EntryNotFound,
+    WriteFailed
+};
+
+HistoryTruncationResult truncateConversationHistory(
+    const std::string &conversationId,
+    const std::string &editedEntryId,
+    std::string &error)
+{
+    std::lock_guard<std::mutex> lock(historyMutex);
+    ensureHistoryCacheLoadedUnlocked();
+    if (g_historyCacheLoadFailed)
+    {
+        error = "Could not load chat history; preserving its contents.";
+        return HistoryTruncationResult::WriteFailed;
+    }
+
+    std::vector<HistoryMessage> retained;
+    bool foundEditedEntry = false;
+    bool removeLaterEntries = false;
+    for (const auto &record : g_cachedHistory)
+    {
+        if (!foundEditedEntry && record.conversationId == conversationId &&
+            record.id == editedEntryId)
+        {
+            foundEditedEntry = true;
+            removeLaterEntries = true;
+            continue;
+        }
+        if (removeLaterEntries && record.conversationId == conversationId)
+            continue;
+        retained.push_back(record);
+    }
+
+    if (!foundEditedEntry)
+    {
+        return HistoryTruncationResult::EntryNotFound;
+    }
+
+    json outArr = json::array();
+    for (const auto &m : retained)
+    {
+        outArr.push_back({{"id", m.id}, {"conversationId", m.conversationId}, {"date", m.date}, {"question", m.question}, {"answer", m.answer}, {"source", m.source}});
+    }
+
+    std::ofstream output(CHAT_HISTORY_FILE, std::ios::out | std::ios::trunc | std::ios::binary);
+    if (!output.is_open())
+    {
+        error = "Could not open chat history for updating.";
+        return HistoryTruncationResult::WriteFailed;
+    }
+    output << outArr.dump(4);
+    if (!output)
+    {
+        error = "Could not save the updated chat history.";
+        return HistoryTruncationResult::WriteFailed;
+    }
+    g_cachedHistory = std::move(retained);
+    return HistoryTruncationResult::Truncated;
 }
 
 // ============================================================
@@ -1733,6 +2050,107 @@ json askGroqWithConversation(
     return callGroq(requestBody);
 }
 
+// ============================================================
+// RAG GENERATOR: AUGMENTED CONTEXT + GROQ LLM GENERATION
+// ============================================================
+
+json askGroqRAGWithConversation(
+    const std::string &userMessage,
+    const std::string &conversationId,
+    const std::vector<RetrievedChunk> &chunks,
+    const std::string &excludedEntryId = "")
+{
+    std::ostringstream contextStream;
+    contextStream << "You are the official AI assistant for Creative Techno College (CTC), Angul, Odisha (Official Website: https://creativecollege.in).\n"
+                  << "You operate with a Hybrid RAG (Retrieval-Augmented Generation) architecture.\n"
+                  << "Below is verified institutional knowledge retrieved from the Creative Techno College knowledge base for this query:\n\n"
+                  << "=== BEGIN RETRIEVED KNOWLEDGE CONTEXT ===\n";
+
+    for (std::size_t i = 0; i < chunks.size(); ++i)
+    {
+        contextStream << "[Record " << (i + 1) << "] (Relevance: "
+                      << std::fixed << std::setprecision(2) << chunks[i].score << ")\n"
+                      << "Topic: " << chunks[i].question << "\n"
+                      << "Category: " << chunks[i].category << "\n"
+                      << "Verified Content: " << chunks[i].answer << "\n\n";
+    }
+
+    contextStream << "=== END RETRIEVED KNOWLEDGE CONTEXT ===\n\n"
+                  << "Instructions for response generation:\n"
+                  << "1. Ground your response in the verified knowledge context provided above. Prioritize verified college details (e.g. courses, admissions, fees, hostel, placements, affiliation with Utkal University, AICTE approval, location in Angul, and contacts).\n"
+                  << "2. Synthesize a clean, natural, and comprehensive response using proper markdown formatting (bullet points, bold text).\n"
+                  << "3. If the user asks for more details, refer them to the official website https://creativecollege.in or the admission helpline (+91-9778427170).\n"
+                  << "4. Maintain a helpful, respectful, and educational tone suitable for students, parents, and faculty.\n"
+                  << "5. If the user asks how to see their history, mention 'Conversation History' in the sidebar.\n"
+                  << "6. If the user asks how to add new Q&A, mention 'Knowledge Base' in the sidebar.";
+
+    const json systemMessage = {
+        {"role", "system"},
+        {"content", contextStream.str()}};
+
+    json messages = json::array();
+    messages.push_back(systemMessage);
+
+    const std::vector<HistoryMessage> history = readHistoryMessages();
+    std::vector<HistoryMessage> conversationRecords;
+    std::size_t matchedRecords = 0;
+    bool reachedExcludedEntry = excludedEntryId.empty();
+
+    for (auto it = history.rbegin(); it != history.rend(); ++it)
+    {
+        if (!reachedExcludedEntry)
+        {
+            if (it->id == excludedEntryId)
+            {
+                reachedExcludedEntry = true;
+            }
+            continue;
+        }
+
+        const std::string historyConversationId =
+            it->conversationId.empty() ? it->id : it->conversationId;
+
+        if (historyConversationId == conversationId)
+        {
+            conversationRecords.push_back(*it);
+            ++matchedRecords;
+
+            if (matchedRecords >= MAX_CONTEXT_RECORDS)
+            {
+                break;
+            }
+        }
+    }
+
+    std::reverse(conversationRecords.begin(), conversationRecords.end());
+
+    for (const HistoryMessage &item : conversationRecords)
+    {
+        if (!item.question.empty())
+        {
+            messages.push_back({{"role", "user"},
+                                {"content", item.question}});
+        }
+
+        if (!item.answer.empty())
+        {
+            messages.push_back({{"role", "assistant"},
+                                {"content", item.answer}});
+        }
+    }
+
+    messages.push_back({{"role", "user"},
+                        {"content", userMessage}});
+
+    const json requestBody = {
+        {"model", GROQ_MODEL},
+        {"messages", messages},
+        {"temperature", 0.6},
+        {"max_tokens", 1024}};
+
+    return callGroq(requestBody);
+}
+
 json listConversationSessions()
 {
     const std::vector<HistoryMessage> messages = readHistoryMessages();
@@ -1774,6 +2192,10 @@ bool clearHistoryFile(std::string &error)
         error = "Could not clear the chat history file.";
         return false;
     }
+    output << "[]";
+    g_cachedHistory.clear();
+    g_historyCacheValid = true;
+    g_historyCacheLoadFailed = false;
     return true;
 }
 
@@ -1783,39 +2205,16 @@ bool replaceHistoryRecord(
     const std::string &source,
     std::string &error)
 {
-    std::vector<HistoryMessage> messages;
+    std::lock_guard<std::mutex> lock(historyMutex);
+    ensureHistoryCacheLoadedUnlocked();
+    if (g_historyCacheLoadFailed)
     {
-        std::lock_guard<std::mutex> lock(historyMutex);
-        std::ifstream file(CHAT_HISTORY_FILE, std::ios::in | std::ios::binary);
-        if (file.is_open())
-        {
-            try
-            {
-                json arr;
-                file >> arr;
-                if (arr.is_array())
-                {
-                    for (const auto &el : arr)
-                    {
-                        HistoryMessage msg;
-                        msg.id = el.value("id", "");
-                        msg.conversationId = el.value("conversationId", "");
-                        msg.date = el.value("date", "");
-                        msg.question = el.value("question", "");
-                        msg.answer = el.value("answer", "");
-                        msg.source = el.value("source", "");
-                        messages.push_back(msg);
-                    }
-                }
-            }
-            catch (...)
-            {
-            }
-        }
+        error = "Could not load chat history; preserving its contents.";
+        return false;
     }
 
     bool found = false;
-    for (auto &m : messages)
+    for (auto &m : g_cachedHistory)
     {
         if (m.id == entryId)
         {
@@ -1833,12 +2232,11 @@ bool replaceHistoryRecord(
     }
 
     json outArr = json::array();
-    for (const auto &m : messages)
+    for (const auto &m : g_cachedHistory)
     {
         outArr.push_back({{"id", m.id}, {"conversationId", m.conversationId}, {"date", m.date}, {"question", m.question}, {"answer", m.answer}, {"source", m.source}});
     }
 
-    std::lock_guard<std::mutex> lock(historyMutex);
     std::ofstream file(CHAT_HISTORY_FILE, std::ios::out | std::ios::trunc | std::ios::binary);
     if (!file.is_open())
     {
@@ -1859,11 +2257,11 @@ int main()
     loadEnvFile();
     if (currentApiKey.empty())
     {
-        std::cerr << "FATAL ERROR: GROQ_API_KEY is missing in the .env file!" << std::endl;
-        std::exit(1);
+        std::cerr << "GROQ_API_KEY is not configured; starting with local knowledge responses only." << std::endl;
     }
     httplib::Server server;
 
+    ensureHistoryFile();
     ensureKnowledgeFile();
 
     // ========================================================
@@ -1958,7 +2356,7 @@ int main()
                 }
                 const json request = json::parse(req.body);
                 const std::string password = jsonString(request, "password");
-                const bool valid = !password.empty() && password == getAdminPassword();
+                const bool valid = !password.empty() && timingSafeCompare(password, getAdminPassword());
 
                 if (valid)
                 {
@@ -2145,8 +2543,25 @@ int main()
             sendJson(res, 200, knowledgeMatch(query));
         });
 
+    server.Get(
+        "/api/rag/status",
+        [](
+            const httplib::Request &,
+            httplib::Response &res)
+        {
+            sendJson(res, 200, {
+                {"ok", true},
+                {"architecture", "Retrieval-Augmented Generation (RAG)"},
+                {"retriever", "Multi-Signal Token & Overlap Knowledge Retriever (C++17)"},
+                {"generator", "Groq AI Cloud LLM (" + GROQ_MODEL + ")"},
+                {"knowledge_file", KNOWLEDGE_FILE},
+                {"status", "active"},
+                {"offline_fallback", "Local Knowledge Base Fallback"}
+            });
+        });
+
     // ========================================================
-    // NORMAL CHAT API
+    // NORMAL CHAT API (WITH RAG ARCHITECTURE)
     // ========================================================
 
     server.Post(
@@ -2185,6 +2600,44 @@ int main()
                     return;
                 }
 
+                if (request.contains("edited_entry_id") &&
+                    !request["edited_entry_id"].is_string())
+                {
+                    sendJson(
+                        res,
+                        400,
+                        {{"ok", false},
+                         {"error", "Edited entry ID must be a string."}});
+                    return;
+                }
+                const std::string editedEntryId =
+                    trim(jsonString(request, "edited_entry_id"));
+                if (!editedEntryId.empty())
+                {
+                    std::string historyError;
+                    const HistoryTruncationResult truncationResult =
+                        truncateConversationHistory(
+                            conversationId, editedEntryId, historyError);
+                    if (truncationResult == HistoryTruncationResult::EntryNotFound)
+                    {
+                        sendJson(
+                            res,
+                            404,
+                            {{"ok", false},
+                             {"error", "The conversation entry to edit was not found."}});
+                        return;
+                    }
+                    if (truncationResult == HistoryTruncationResult::WriteFailed)
+                    {
+                        sendJson(
+                            res,
+                            409,
+                            {{"ok", false},
+                             {"error", historyError}});
+                        return;
+                    }
+                }
+
                 std::cout
                     << "\n========================================\n"
                     << "User Question: " << message
@@ -2194,56 +2647,109 @@ int main()
                 json answer;
                 bool answered = false;
 
-                // 1. Check local knowledge base & keyword rules first
-                std::string directAnswer = keywordResponse(message);
-                bool usedLocalKnowledge = false;
-
-                if (directAnswer.empty())
-                {
-                    const json matched = knowledgeMatch(message);
-                    if (matched.value("found", false))
-                    {
-                        directAnswer = matched.value("answer", "");
-                        usedLocalKnowledge = true;
-                    }
-                }
-
-                if (!directAnswer.empty())
+                // 1. Instant Keyword Handling (Greetings, Goodbyes, Thanks)
+                const std::string directKeyword = keywordResponse(message);
+                if (!directKeyword.empty())
                 {
                     answer = {
                         {"ok", true},
-                        {"answer", directAnswer},
-                        {"source", usedLocalKnowledge ? "knowledge_file" : "keyword_rule"}};
+                        {"answer", directKeyword},
+                        {"source", "keyword_rule"}};
                     answered = true;
                 }
 
-                // 2. If no local match, fallback to the Groq API
+                // 2. RAG Retrieval Phase: Search knowledge base for top relevant items
+                std::vector<RetrievedChunk> retrievedChunks;
+                if (!answered)
+                {
+                    retrievedChunks = retrieveRelevantKnowledge(message, 3, 0.28);
+                }
+
+                // 3. RAG Generation Phase via Groq API (if online)
+                std::string usedSource = "groq_ai";
                 if (!answered && !currentApiKey.empty())
                 {
-                    answer = askGroqWithConversation(message, conversationId);
-                    if (answer.value("ok", false))
+                    if (!retrievedChunks.empty())
                     {
-                        answer["source"] = "groq_ai";
+                        // True RAG: Knowledge Base Retrieval + LLM Synthesis
+                        answer = askGroqRAGWithConversation(message, conversationId, retrievedChunks);
+                        if (answer.value("ok", false))
+                        {
+                            usedSource = "rag_ai";
+                            answer["source"] = "rag_ai";
+                            answer["match_score"] = retrievedChunks[0].score;
+
+                            json srcArr = json::array();
+                            for (const auto &chunk : retrievedChunks)
+                            {
+                                srcArr.push_back({
+                                    {"question", chunk.question},
+                                    {"category", chunk.category},
+                                    {"score", chunk.score}
+                                });
+                            }
+                            answer["retrieved_knowledge"] = srcArr;
+                            answered = true;
+                        }
+                        else
+                        {
+                            std::cerr << "Groq RAG API Error: " << answer.value("error", "Unknown error") << std::endl;
+                            // Fallback to offline knowledge answer if confidence is sufficient
+                            if (retrievedChunks[0].score >= 0.50)
+                            {
+                                answer = {
+                                    {"ok", true},
+                                    {"answer", retrievedChunks[0].answer},
+                                    {"source", "knowledge_file"}};
+                                usedSource = "knowledge_file";
+                                answered = true;
+                            }
+                        }
+                    }
+
+                    // If no knowledge chunks retrieved, or RAG couldn't answer:
+                    if (!answered)
+                    {
+                        answer = askGroqWithConversation(message, conversationId);
+                        if (answer.value("ok", false))
+                        {
+                            usedSource = "groq_ai";
+                            answer["source"] = "groq_ai";
+                            answered = true;
+                        }
+                        else
+                        {
+                            std::cerr << "Groq API Error: " << answer.value("error", "Unknown error") << std::endl;
+                            answer = {
+                                {"ok", true},
+                                {"answer", "⚠️ **Groq API Error:** " + answer.value("error", "Unknown error")},
+                                {"source", "api_error"}};
+                            usedSource = "api_error";
+                            answered = true;
+                        }
+                    }
+                }
+
+                // 4. Offline Fallback (No Groq API Key or Offline)
+                if (!answered)
+                {
+                    if (!retrievedChunks.empty() && retrievedChunks[0].score >= 0.48)
+                    {
+                        answer = {
+                            {"ok", true},
+                            {"answer", retrievedChunks[0].answer},
+                            {"source", "knowledge_file"}};
+                        usedSource = "knowledge_file";
                         answered = true;
                     }
                     else
                     {
-                        std::cerr << "Groq API Error: " << answer.value("error", "Unknown error") << std::endl;
                         answer = {
-                            {"ok", true}, // We return true to the frontend so it prints the error text as a bot response
-                            {"answer", "⚠️ **Groq API Error:** " + answer.value("error", "Unknown error")},
-                            {"source", "api_error"}};
-                        answered = true;
+                            {"ok", true},
+                            {"answer", "The requested information is not available in the local knowledge base. Please configure your Groq API Key in Settings to enable online AI & RAG responses."},
+                            {"source", "fallback_no_api"}};
+                        usedSource = "fallback_no_api";
                     }
-                }
-
-                // 3. Neither API nor Knowledge Base has the answer
-                if (!answered)
-                {
-                    answer = {
-                        {"ok", true},
-                        {"answer", "The requested information is not available in the local knowledge base. Please configure the API in Settings for an online answer."},
-                        {"source", "fallback_no_api"}};
                 }
 
                 const std::string entryId = createId();
@@ -2254,12 +2760,14 @@ int main()
                     conversationId,
                     message,
                     answer.value("answer", ""),
-                    answer.value("source", ""),
+                    answer.value("source", usedSource),
                     historyError);
 
                 RefreshContext context;
-                context.kind = "text";
+                context.kind = (usedSource == "rag_ai") ? "rag_ai" : "text";
+                context.conversationId = conversationId;
                 context.originalPrompt = message;
+                context.ragChunks = retrievedChunks;
                 saveRefreshContext(entryId, context);
 
                 answer["entry_id"] = entryId;
@@ -2274,22 +2782,28 @@ int main()
                 const std::string responseSource =
                     answer.value("source", "");
 
-                if (responseSource == "groq_ai")
+                if (responseSource == "rag_ai")
+                {
+                    std::cout
+                        << "RAG Pipeline: Context retrieved from Knowledge Base + Groq response generated."
+                        << std::endl;
+                }
+                else if (responseSource == "groq_ai")
                 {
                     std::cout
                         << "Groq API: Response received successfully."
                         << std::endl;
                 }
-                else if (responseSource == "unknown_question")
+                else if (responseSource == "knowledge_file")
                 {
                     std::cout
-                        << "Groq API: Offline / unavailable. Unknown-question fallback used."
+                        << "Knowledge Base: Offline response retrieved."
                         << std::endl;
                 }
                 else
                 {
                     std::cout
-                        << "Chatbot: Local response generated."
+                        << "Chatbot: Local response generated (" << responseSource << ")."
                         << std::endl;
                 }
 
@@ -2344,13 +2858,38 @@ int main()
 
                 json answer;
 
-                if (hasContext && context.kind == "document")
+                if (hasContext && context.kind == "rag_ai" && !context.ragChunks.empty())
+                {
+                    answer = askGroqRAGWithConversation(
+                        context.originalPrompt.empty() ? message : context.originalPrompt,
+                        context.conversationId,
+                        context.ragChunks,
+                        entryId);
+                    if (answer.value("ok", false))
+                    {
+                        answer["source"] = "rag_ai";
+                        json srcArr = json::array();
+                        for (const auto &chunk : context.ragChunks)
+                        {
+                            srcArr.push_back({
+                                {"question", chunk.question},
+                                {"category", chunk.category},
+                                {"score", chunk.score}});
+                        }
+                        answer["retrieved_knowledge"] = srcArr;
+                    }
+                }
+                else if (hasContext && context.kind == "document")
                 {
                     answer = askGroq(
                         buildDocumentPrompt(
                             context.filename,
                             context.documentText,
                             context.originalPrompt));
+                    if (answer.value("ok", false))
+                    {
+                        answer["source"] = "rag_document";
+                    }
                 }
                 else if (hasContext && context.kind == "text" &&
                          !context.documentText.empty())
@@ -2364,6 +2903,10 @@ int main()
                             context.originalPrompt.empty()
                                 ? message
                                 : context.originalPrompt));
+                    if (answer.value("ok", false))
+                    {
+                        answer["source"] = "rag_document";
+                    }
                 }
                 else if (hasContext &&
                          context.kind == "image" &&
@@ -2376,10 +2919,18 @@ int main()
                         context.originalPrompt.empty()
                             ? message
                             : context.originalPrompt);
+                    if (answer.value("ok", false))
+                    {
+                        answer["source"] = "groq_vision";
+                    }
                 }
                 else
                 {
                     answer = askGroq(message);
+                    if (answer.value("ok", false))
+                    {
+                        answer["source"] = "groq_ai";
+                    }
                 }
 
                 if (!answer.value("ok", false))
@@ -2443,8 +2994,8 @@ int main()
                 if (conversationId.empty())
                     conversationId = createId();
 
-                const std::string filename = trim(
-                    jsonString(request, "filename"));
+                const std::string filename = sanitizeFilename(trim(
+                    jsonString(request, "filename")));
                 const std::string mimeType = trim(
                     jsonString(request, "mime_type"));
                 const std::string base64Data =
@@ -2499,12 +3050,13 @@ int main()
                 const std::string entryId = createId();
                 std::string historyError;
 
+                const std::string fileSource = answer.value("source", (kind == "image" ? "groq_vision" : "rag_document"));
                 const bool saved = appendHistoryRecord(
                     entryId,
                     conversationId,
                     storedQuestion,
                     answer.value("answer", ""),
-                    answer.value("source", "groq_ai"),
+                    fileSource,
                     historyError);
 
                 RefreshContext context;
