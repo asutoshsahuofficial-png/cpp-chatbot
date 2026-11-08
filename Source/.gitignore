@@ -1,0 +1,7 @@
+chat_history.json
+.env
+.env.*
+*.old.exe
+*.bak
+*.tmp
+*.dll

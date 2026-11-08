@@ -1,0 +1,8 @@
+Source/.env
+Source/.env.*
+.env
+.env.*
+.vscode/
+*.tmp
+*.bak
+*.old.exe

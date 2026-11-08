@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Chatbot Assistant — Hybrid C++17 Desktop Server & Groq Cloud AI Assistant for Creative Techno College."
+    />
+    <meta name="theme-color" content="#2D5A46" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; script-src 'self' https://cdn.jsdelivr.net; connect-src 'self'; object-src 'none'; base-uri 'self';"
+    />
+
+    <title>Chatbot Assistant — C++17 & Groq AI</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js" defer></script>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232D5A46' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cstyle%3E@media (prefers-color-scheme: dark) %7B :root %7B stroke: %2334D399; %7D %7D%3C/style%3E%3Cpath d='M12 8V4H8'/%3E%3Crect width='16' height='12' x='4' y='8' rx='2.5'/%3E%3Cpath d='M2 14h2'/%3E%3Cpath d='M20 14h2'/%3E%3Cpath d='M15 13v2'/%3E%3Cpath d='M9 13v2'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="style.css?v=185" />
+  </head>
+
+  <body>
+    <!-- ======================================================
+         WELCOME SCREEN
+         ====================================================== -->
+    <div id="entryWelcomeScreen" aria-label="Welcome screen">
+      <section class="welcome-panel" aria-labelledby="welcomeTitle">
+        <h1 id="welcomeTitle">
+          Creative Techno College
+        </h1>
+
+        <p class="welcome-copy">
+          AI Campus Guide &amp; Student Assistant &mdash; BCA 2nd Semester Project, Utkal University.
+        </p>
+
+        <button id="enterChatbotButton" class="welcome-enter" type="button" aria-label="Start chatting with the assistant">
+          Enter Campus Assistant &rarr;
+        </button>
+
+        <div class="welcome-meta" role="list" aria-label="System status">
+          <span role="listitem"><i class="meta-dot" aria-hidden="true"></i> College RAG Active</span>
+          <span role="listitem">Groq AI Enabled</span>
+          <span role="listitem">265+ Verified FAQs</span>
+          <span role="listitem">Offline Ready</span>
+        </div>
+      </section>
+    </div>
+
+    <!-- ======================================================
+         APP SHELL
+         ====================================================== -->
+    <div class="app-shell">
+      <!-- ====================================================
+           SIDEBAR
+           ==================================================== -->
+      <aside class="sidebar">
+        <!-- BRAND -->
+        <div class="brand-section">
+          <div class="brand-avatar" aria-hidden="true">
+            <i data-lucide="terminal" class="brand-avatar-icon"></i>
+          </div>
+          <div>
+            <div class="brand-mark">CTC Assistant</div>
+            <div class="brand-subtitle">Creative Techno College</div>
+          </div>
+        </div>
+
+        <!-- NAVIGATION -->
+        <nav class="nav" aria-label="Main Navigation">
+          <button class="nav-item active" data-section="chat-section" type="button" aria-label="New Chat">
+            <i data-lucide="plus" class="nav-icon" aria-hidden="true"></i>
+            <span> New Chat </span>
+          </button>
+          <button class="nav-item" data-section="history-section" type="button">
+            <i data-lucide="clock" class="nav-icon" aria-hidden="true"></i>
+            <span> Conversation History </span>
+          </button>
+          <button class="nav-item" data-section="knowledge-section" type="button">
+            <i data-lucide="book-text" class="nav-icon" aria-hidden="true"></i>
+            <span> Knowledge Base </span>
+          </button>
+          <button class="nav-item" data-section="about-section" type="button">
+            <i data-lucide="info" class="nav-icon" aria-hidden="true"></i>
+            <span> About Us </span>
+          </button>
+          <button class="nav-item" id="globalThemeToggleBtn" type="button" aria-label="Toggle Dark Mode">
+            <i data-lucide="moon" class="nav-icon" aria-hidden="true"></i>
+            <span> Dark Mode </span>
+          </button>
+        </nav>
+
+        <!-- SIDEBAR RECENTS -->
+        <div class="sidebar-recents-section">
+          <div class="sidebar-recents-header">Recent Threads</div>
+          <div id="sidebarRecentsList" class="sidebar-recents-list"></div>
+        </div>
+
+        <!-- SIDEBAR FOOTER -->
+        <div class="sidebar-footer">
+          <div class="sidebar-footer-meta">
+            <span class="sidebar-footer-project">BCA 2nd Semester Project</span>
+            <span class="sidebar-footer-college">Creative Techno College</span>
+            <span class="sidebar-footer-univ">Utkal University</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ====================================================
+           MAIN CONTENT
+           ==================================================== -->
+      <main class="main">
+
+        <!-- ==================================================
+             CHAT SECTION
+             ================================================== -->
+        <section class="content-section active-section" id="chat-section">
+          <header class="topbar">
+            <div class="topbar-title">
+              <div class="topbar-avatar" aria-hidden="true"><i data-lucide="cpu"></i></div>
+              <div class="topbar-text">
+                <h1>Creative Techno College Assistant</h1>
+                <p>BCA 2nd Semester Project &middot; Creative Techno College, Angul</p>
+              </div>
+            </div>
+            <div class="topbar-actions">
+              <button class="topbar-btn danger" id="exitBtn" title="Exit Chatbot" aria-label="Exit Chatbot">
+                <i data-lucide="log-out" aria-hidden="true"></i>
+              </button>
+            </div>
+          </header>
+
+          <!-- CHAT STREAM -->
+          <div class="chat" id="chat">
+            <div class="message-row assistant-row">
+              <div class="assistant-avatar" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bot"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></div>
+              <div class="bubble assistant-bubble">
+                <p><strong>Welcome!</strong> I'm here to help with anything&mdash;from coding, academic concepts, and general questions to Creative Techno College info (courses, syllabus, fees, admissions). You can also attach documents (<code>.docx</code>, <code>.txt</code>) or images to get instant answers.</p>
+                <div class="message-meta timestamp">
+                  <span>12:07 pm</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- COMPOSER -->
+          <section class="composer">
+            <div class="quick-actions-label">
+              <i data-lucide="compass" class="quick-actions-icon" aria-hidden="true"></i>
+              <span>Popular questions:</span>
+            </div>
+            <div class="quick-actions">
+              <button class="quick-action" data-prompt="What courses are offered at Creative Techno College?" type="button">College Courses</button>
+              <button class="quick-action" data-prompt="Tell me about BCA admission process, fees, and eligibility" type="button">BCA Admission &amp; Fees</button>
+              <button class="quick-action" data-prompt="What are the campus and hostel facilities at CTC?" type="button">Hostel &amp; Campus</button>
+              <button class="quick-action" data-prompt="Which companies visit Creative Techno College for campus placements?" type="button">Campus Placements</button>
+            </div>
+
+            <!-- INPUT BAR -->
+            <form class="input-bar" id="promptForm">
+              <button type="button" class="chatbot-attach-btn" id="hardcodedAttachBtn" title="Attach TXT, DOCX, or image file" aria-label="Attach a file">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-paperclip"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              </button>
+              
+              <div class="chatbot-file-pill" id="hardcodedFilePill" aria-live="polite">
+                <span class="chatbot-file-type">FILE</span>
+                <span class="chatbot-file-name"></span>
+                <button type="button" class="chatbot-file-remove" aria-label="Remove attached file" title="Remove file">&times;</button>
+              </div>
+              
+              <input type="file" id="chatbotFileInput" hidden accept=".txt,.docx,.png,.jpg,.jpeg,.webp,.gif,.bmp,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,image/gif,image/bmp">
+              <input
+                id="promptInput"
+                type="text"
+                placeholder="Type your message here..."
+                autocomplete="off"
+                aria-label="Message prompt input"
+              />
+
+              <button type="submit" class="tool-btn" aria-label="Send message">
+                <i data-lucide="send" aria-hidden="true"></i>
+              </button>
+            </form>
+          </section>
+
+          <!-- MAIN FOOTER -->
+          <footer class="main-footer">
+            <span>Creative Techno College</span>
+            <span class="footer-divider">&middot;</span>
+            <span>C++17 Desktop Runtime</span>
+            <span class="footer-divider">&middot;</span>
+            <span>Groq Cloud Inference</span>
+          </footer>
+        </section>
+
+        <!-- ==================================================
+             CONVERSATION HISTORY
+             ================================================== -->
+        <section class="content-section" id="history-section">
+          <div class="page-content">
+            <div class="history-header-bar">
+              <div class="history-title-group">
+                <div class="history-header-icon" aria-hidden="true">
+                  <i data-lucide="clock"></i>
+                </div>
+                <div>
+                  <h2 class="history-title-heading">Conversation History</h2>
+                  <p class="history-title-desc">Inspect, reload, and manage recorded conversation sessions.</p>
+                </div>
+              </div>
+              <div class="history-actions-bar">
+                <button id="exportHistoryButtonUI" class="history-action-btn secondary" type="button">
+                  <i data-lucide="download" aria-hidden="true"></i> Export
+                </button>
+                <button id="clearHistoryButton" class="clear-all-history-btn history-action-btn danger" type="button">
+                  <i data-lucide="trash-2" aria-hidden="true"></i> Clear All History
+                </button>
+              </div>
+            </div>
+
+            <div class="history-layout-grid">
+              <!-- Left Column: Search & List -->
+              <div class="history-sidebar-column">
+                <div class="history-search-container">
+                  <i data-lucide="search" class="history-search-icon" aria-hidden="true"></i>
+                  <input type="text" id="historySearchInput" placeholder="Search conversations..." aria-label="Search conversation history" />
+                </div>
+                
+                <div id="historyList" class="history-list">
+                  <!-- Injected via JavaScript -->
+                </div>
+              </div>
+
+              <!-- Right Column: Preview Pane -->
+              <div id="historyPreviewPane" class="history-preview-pane">
+                <div id="historyPreviewEmpty" class="history-preview-empty">
+                  <div class="empty-icon" aria-hidden="true">
+                    <i data-lucide="message-square"></i>
+                  </div>
+                  <h3>No Conversation Selected</h3>
+                  <p>Select a conversation from the left to inspect its full transcript.</p>
+                </div>
+
+                <div id="historyPreviewContent" class="history-preview-content">
+                  <div class="history-preview-header">
+                    <div class="history-preview-header-meta">
+                      <div class="history-preview-badge" aria-hidden="true">
+                        <i data-lucide="message-square-dashed"></i>
+                      </div>
+                      <div class="history-preview-meta">
+                        <h3 id="historyPreviewTitle"></h3>
+                        <p id="historyPreviewDate"></p>
+                      </div>
+                    </div>
+                    <button id="historyPreviewLoadBtn" class="history-preview-load-btn" type="button">
+                      <i data-lucide="rotate-ccw" aria-hidden="true"></i> Load in Active Chat
+                    </button>
+                  </div>
+
+                  <div id="historyPreviewBubbles" class="history-preview-bubbles">
+                    <!-- Bubbles injected here -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================
+             SAVED ANSWERS
+             ================================================== -->
+        <section class="content-section info-section" id="saved-section">
+          <div class="page-content">
+            <div class="saved-header-row">
+              <div>
+                <h2>Saved Answers</h2>
+                <p class="page-subtitle">Access bookmarked responses for quick reference.</p>
+              </div>
+              <button id="clearSavedAnswersBtn" class="saved-clear-btn" type="button">
+                Clear Bookmarks
+              </button>
+            </div>
+
+            <div class="info-card saved-card">
+              <div class="empty-state">
+                <div class="empty-icon"><i data-lucide="bookmark" aria-hidden="true"></i></div>
+                <h3>No Saved Answers</h3>
+                <p>Bookmark any assistant response in chat to review it here.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================
+             KNOWLEDGE BASE & FAQ
+             ================================================== -->
+        <section class="content-section info-section" id="knowledge-section">
+          <div class="kb-page-container">
+            <div class="kb-top-bar">
+              <div class="kb-title-block">
+                <div class="kb-header-icon" aria-hidden="true">
+                  <i data-lucide="book-open"></i>
+                </div>
+                <div>
+                  <h2>College Knowledge Base</h2>
+                  <p>Verified campus FAQs, degree programs, and syllabus answers stored locally.</p>
+                </div>
+              </div>
+              <button id="addKnowledgeBtn" type="button" class="btn-primary">
+                <i data-lucide="plus" aria-hidden="true"></i> Add New Q&amp;A
+              </button>
+            </div>
+
+            <!-- ADMIN MODE PANEL -->
+            <div class="kb-admin-panel">
+              <div class="kb-admin-status-wrap">
+                <i data-lucide="shield" aria-hidden="true"></i>
+                <div class="kb-admin-status-title">
+                  Administrative Access:
+                  <span id="adminStatusBadge" class="locked">Locked</span>
+                </div>
+              </div>
+              <div class="kb-admin-controls">
+                <div id="adminMessage"></div>
+                <div class="kb-password-box">
+                  <label for="adminPassword" class="sr-only" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;">Admin Password</label>
+                  <input type="password" id="adminPassword" placeholder="Admin Password" class="kb-admin-password-input" aria-label="Admin Password" />
+                  <button id="toggleAdminPassword" class="kb-password-toggle" type="button" aria-label="Toggle Password Visibility">
+                    <i data-lucide="eye" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <button id="adminLoginButton" type="button">Unlock</button>
+                <button id="adminLogoutButton" type="button" hidden>Lock</button>
+              </div>
+            </div>
+
+            <div class="kb-search-container">
+              <i data-lucide="search" class="kb-search-icon" aria-hidden="true"></i>
+              <input type="text" id="knowledgeSearch" placeholder="Search knowledge base entries..." class="kb-search-input" aria-label="Search knowledge base" />
+            </div>
+
+            <div class="kb-table-container">
+              <table class="kb-table">
+                <thead>
+                  <tr>
+                    <th style="width: 50px;">#</th>
+                    <th style="width: 32%;">Question (Keyword)</th>
+                    <th style="width: 50%;">Response (Answer)</th>
+                    <th style="text-align: center; width: 100px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="knowledgeTableBody">
+                  <!-- Populated by JavaScript -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="kb-pagination-container">
+              <div></div>
+              <div class="history-actions-bar">
+                <button id="kbPagePrev" class="kb-page-btn" type="button" aria-label="Previous Page">
+                  <i data-lucide="chevron-left" aria-hidden="true"></i>
+                </button>
+                <button id="kbPageCurr" class="kb-page-current" type="button" aria-label="Current Page">1</button>
+                <button id="kbPageNext" class="kb-page-btn" type="button" aria-label="Next Page">
+                  <i data-lucide="chevron-right" aria-hidden="true"></i>
+                </button>
+              </div>
+              <div class="kb-total-count">
+                Total: <span id="knowledgeTotalCount">0</span> entries
+              </div>
+            </div>
+
+            <!-- MODAL FORM DIALOG -->
+            <div id="knowledgeModal" class="kb-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="knowledgeFormTitle">
+              <div class="kb-modal-dialog">
+                <button id="knowledgeCloseIconBtn" class="kb-modal-close-btn" type="button" aria-label="Close dialog">
+                  <i data-lucide="x" aria-hidden="true"></i>
+                </button>
+                <h3 id="knowledgeFormTitle">Add New Q&amp;A</h3>
+                <div id="knowledgeMessage"></div>
+                
+                <div class="kb-form-field">
+                  <label for="knowledgeQuestion">Question / Keyword Trigger</label>
+                  <input type="text" id="knowledgeQuestion" placeholder="e.g., what is virtual function" />
+                </div>
+                
+                <div class="kb-form-field">
+                  <label for="knowledgeAnswer">Response Content</label>
+                  <textarea id="knowledgeAnswer" placeholder="Enter the exact answer text to return..." rows="4"></textarea>
+                </div>
+                
+                <div class="kb-actions-group">
+                  <button id="knowledgeCancelButton" class="btn-secondary" type="button">Cancel</button>
+                  <button id="knowledgeSaveButton" class="btn-primary" type="button">Save Entry</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================
+             ABOUT US (EDITORIAL ACADEMIC SPECIFICATION)
+             ================================================== -->
+        <section class="content-section info-section" id="about-section">
+          <div class="about-container">
+            <div class="about-header-bar">
+              <div class="about-header-main">
+                <div class="about-header-icon" aria-hidden="true">
+                  <i data-lucide="graduation-cap"></i>
+                </div>
+                <div>
+                  <h2>Project Overview &amp; Architecture</h2>
+                  <p>Bachelor of Computer Applications (BCA) Semester 2 Academic Software &middot; Utkal University</p>
+                </div>
+              </div>
+              <a href="https://creativecollege.in" target="_blank" rel="noopener noreferrer" class="about-header-badge">
+                <i data-lucide="globe" aria-hidden="true"></i>
+                <span>creativecollege.in</span>
+                <i data-lucide="external-link" aria-hidden="true"></i>
+              </a>
+            </div>
+
+            <div class="about-overview-card">
+              <h3><i data-lucide="info" aria-hidden="true"></i> About This Project</h3>
+              <p>Chatbot Assistant is an academic software project created by BCA 2nd Semester students of <strong>Creative Techno College (CTC), Angul</strong> (affiliated with Utkal University). Built as an intelligent campus companion, it pairs a native C++17 server with cloud AI from the Groq API. With an integrated <strong>Retrieval-Augmented Generation (RAG)</strong> knowledge base trained directly on the official college website (<a href="https://creativecollege.in" target="_blank" rel="noopener noreferrer" style="color: var(--brand-primary); font-weight: 600;">creativecollege.in</a>), it answers student inquiries about admissions, courses, fees, syllabus, and hostel life instantly—online or offline.</p>
+            </div>
+
+            <!-- Architectural Breakdown (3 Pillars) -->
+            <div class="about-architecture-grid">
+              <div class="about-arch-card">
+                <div class="about-arch-header">
+                  <i data-lucide="server" aria-hidden="true"></i>
+                  <span>Native C++17 Engine</span>
+                </div>
+                <p class="about-arch-desc">Custom C++17 server (<code>chatbot_updated.exe</code>) utilizing <code>cpp-httplib</code> with a 64-worker thread pool. Stores chat history locally, extracts text from Word (.docx) and text files, and answers queries instantly with zero external dependencies.</p>
+              </div>
+
+              <div class="about-arch-card">
+                <div class="about-arch-header">
+                  <i data-lucide="database" aria-hidden="true"></i>
+                  <span>College Website RAG Engine</span>
+                </div>
+                <p class="about-arch-desc">Grounds the AI with verified information from <code>creativecollege.in</code> (BCA, BBA, B.Sc, MCA, MBA courses, admissions, fees, hostels, and campus placements). Falls back to smart keyword matching when offline.</p>
+              </div>
+
+              <div class="about-arch-card">
+                <div class="about-arch-header">
+                  <i data-lucide="cloud-lightning" aria-hidden="true"></i>
+                  <span>Cloud Generative AI</span>
+                </div>
+                <p class="about-arch-desc">Connects to ultra-fast Groq cloud AI models using <code>libcurl</code> for open-ended questions. Feeds relevant college notes into prompts and supports image inspection with advanced vision models.</p>
+              </div>
+            </div>
+
+            <!-- Technical Specifications Table -->
+            <div class="about-spec-grid">
+              <div class="about-spec-card">
+                <h3><i data-lucide="layers" aria-hidden="true"></i> Technology Stack</h3>
+                <table class="about-spec-table">
+                  <tbody>
+                    <tr>
+                      <td class="about-spec-label">Backend Engine:</td>
+                      <td class="about-spec-value">C++17 (MSVC / MinGW UCRT64)</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">HTTP Server:</td>
+                      <td class="about-spec-value">cpp-httplib v0.15 (ThreadPool: 64)</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">Serialization:</td>
+                      <td class="about-spec-value">nlohmann/json v3.11</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">Network Client:</td>
+                      <td class="about-spec-value">libcurl (TLS &amp; SSL Verified)</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">Frontend Stack:</td>
+                      <td class="about-spec-value">HTML5, Responsive CSS3, Modern ES6 JS</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="about-spec-card">
+                <h3><i data-lucide="file-check" aria-hidden="true"></i> Capabilities &amp; Formats</h3>
+                <table class="about-spec-table">
+                  <tbody>
+                    <tr>
+                      <td class="about-spec-label">Knowledge Source:</td>
+                      <td class="about-spec-value">creativecollege.in (265+ Verified FAQs)</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">Document Formats:</td>
+                      <td class="about-spec-value">.txt, .docx (Word documents &amp; text notes)</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">Image Formats:</td>
+                      <td class="about-spec-value">.png, .jpg, .jpeg, .webp, .gif, .bmp</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">Chat History:</td>
+                      <td class="about-spec-value">Local JSON Filesystem</td>
+                    </tr>
+                    <tr>
+                      <td class="about-spec-label">Admin Security:</td>
+                      <td class="about-spec-value">Password Login + Session Tokens</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Project Guide Card -->
+            <div class="about-guide-card">
+              <div class="about-guide-info">
+                <i data-lucide="award" aria-hidden="true"></i>
+                <div class="about-guide-text">
+                  <strong>Project Guide: Mr. Swastik Ranjan Sahoo</strong>
+                  <span>Faculty, Department of Computer Applications &middot; Creative Techno College</span>
+                </div>
+              </div>
+              <span class="about-header-badge" style="background: var(--bg-card);">Academic Mentor</span>
+            </div>
+
+            <!-- Development Team -->
+            <div class="about-overview-card" style="margin-bottom: 16px;">
+              <h3><i data-lucide="users" aria-hidden="true"></i> Technocrat Development Team</h3>
+              <p>Student developers affiliated with Creative Techno College, Utkal University (BCA Semester 2):</p>
+            </div>
+
+            <div class="about-team-grid">
+              <div class="about-team-card">
+                <div class="about-team-avatar">AS</div>
+                <strong class="about-team-name">Asutosh Sahu</strong>
+                <span class="about-team-role">Technical Lead &amp; Development</span>
+              </div>
+              <div class="about-team-card">
+                <div class="about-team-avatar">SS</div>
+                <strong class="about-team-name">Subhashree Sahu</strong>
+                <span class="about-team-role">Requirements Gathering</span>
+              </div>
+              <div class="about-team-card">
+                <div class="about-team-avatar">SS</div>
+                <strong class="about-team-name">Sahil Setha</strong>
+                <span class="about-team-role">Presentation &amp; Pitch Strategy</span>
+              </div>
+              <div class="about-team-card">
+                <div class="about-team-avatar">SB</div>
+                <strong class="about-team-name">Subham Behera</strong>
+                <span class="about-team-role">Project Coordinator</span>
+              </div>
+            </div>
+
+            <footer class="about-footer-bar">
+              <div class="about-footer-title">Creative Techno College &middot; Utkal University</div>
+              <div>Baluakata, Po - Saradhapur, Angul, Odisha &ndash; 759143 | Approved by AICTE, New Delhi</div>
+              <div class="about-footer-links">
+                <a href="https://creativecollege.in" target="_blank" rel="noopener noreferrer" class="about-footer-link">
+                  <i data-lucide="globe"></i> Official Portal: creativecollege.in
+                </a>
+                <a href="tel:+919778427170" class="about-footer-link">
+                  <i data-lucide="phone"></i> Admission Helpline: +91 9778427170
+                </a>
+                <a href="mailto:principal.creativecollege@gmail.com" class="about-footer-link">
+                  <i data-lucide="mail"></i> principal.creativecollege@gmail.com
+                </a>
+              </div>
+            </footer>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- VENDOR LIBRARIES -->
+    <script src="vendor/purify.min.js"></script>
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/highlight.min.js"></script>
+    <link rel="stylesheet" href="vendor/github-dark.min.css" />
+
+    <!-- MAIN JAVASCRIPT -->
+    <script src="script.js?v=185"></script>
+  </body>
+</html>
