@@ -100,20 +100,21 @@ Built on a **Dual-Engine Architecture**, it bridges low-level systems programmin
 | Component | Technology | Description |
 | :--- | :--- | :--- |
 | **Core Language** | **C++17** | High-performance, multithreaded backend server |
-| **HTTP Engine** | **cpp-httplib** | Header-only cross-platform HTTP/HTTPS server |
-| **JSON Serialization** | **nlohmann/json** | Modern C++ JSON parsing, manipulation, and validation |
-| **Network Client** | **libcurl** (v4) | Dynamic SSL/TLS HTTP client for Groq API communications |
+| **HTTP Engine** | **cpp-httplib (v0.65.0)** | Header-only cross-platform HTTP/HTTPS server |
+| **JSON Serialization** | **nlohmann/json (v3.12.0)** | Modern C++ JSON parsing, manipulation, and validation |
+| **Network Client** | **libcurl (v8.22.0)** | Dynamic SSL/TLS HTTP client for Groq API communications |
 | **Threading** | **POSIX Threads / winpthread** | Worker thread pooling and concurrent client connection handling |
-| **Compiler & Toolchain** | **GCC 14 / MinGW-w64 (MSYS2 UCRT64)** | Optimized 64-bit native Windows binary compilation |
+| **Compiler & Toolchain** | **GCC 16 / MinGW-w64 (MSYS2 UCRT64)** | Optimized 64-bit native Windows binary compilation |
 
 ### Frontend Web Client
 | Component | Technology | Description |
 | :--- | :--- | :--- |
 | **Markup & Styling** | **HTML5 & CSS3** | Custom responsive UI with CSS custom properties & animations |
 | **Client Logic** | **Vanilla JavaScript (ES6+)** | Asynchronous fetch requests, state management, modal handling |
-| **Markdown Parser** | **Marked.js (v14)** | Safe Markdown-to-HTML rendering for AI responses |
-| **Syntax Highlighting** | **Highlight.js (v11.8)** | Auto-detected syntax colorizer for 50+ programming languages |
-| **Security Sanitizer** | **DOMPurify** | Client-side XSS prevention and HTML sanitization |
+| **Markdown Parser** | **Marked.js (v18.1.3)** | Safe Markdown-to-HTML rendering for AI responses |
+| **Syntax Highlighting** | **Highlight.js (v11.12.0)** | Auto-detected syntax colorizer for 50+ programming languages |
+| **Security Sanitizer** | **DOMPurify (v3.4.17)** | Client-side XSS prevention and HTML sanitization |
+| **Icons Library** | **Lucide Icons (v1.70.0)** | High-definition SVG icons via lightweight UMD script |
 
 ---
 
@@ -135,8 +136,8 @@ ChatBot/
 │   ├── vendor/                         # Offline Frontend Vendor Dependencies
 │   │   ├── marked.min.js               # Markdown parser
 │   │   ├── highlight.min.js            # Code syntax highlighter
-│   │   ├── highlight-github-dark.min.css
-│   │   └── purifymin.js                # DOMPurify XSS filter
+│   │   ├── github-dark.min.css         # Highlight.js dark theme
+│   │   └── purify.min.js               # DOMPurify XSS filter
 │   │
 │   ├── .env.example                    # Environment credentials template
 │   ├── build_updated.bat               # One-click MSYS2 UCRT64 compilation script
