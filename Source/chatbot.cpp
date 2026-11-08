@@ -855,6 +855,8 @@ void setSecurityHeaders(httplib::Response &res)
     res.set_header("X-XSS-Protection", "0");
     res.set_header("X-Permitted-Cross-Domain-Policies", "none");
     res.set_header("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.set_header("Cross-Origin-Opener-Policy", "same-origin");
+    res.set_header("Cross-Origin-Resource-Policy", "same-origin");
     res.set_header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
     res.set_header("Content-Security-Policy",
                    "default-src 'self'; "
@@ -901,12 +903,30 @@ bool isRateLimited(const std::string &ip)
 void recordFailedLogin(const std::string &ip)
 {
     std::lock_guard<std::mutex> lock(rateLimitMutex);
+    const auto now = std::chrono::steady_clock::now();
+
+    // Memory bounds: prune expired lockouts if map grows
+    if (loginAttempts.size() > 200)
+    {
+        for (auto it = loginAttempts.begin(); it != loginAttempts.end();)
+        {
+            if (it->second.lockedUntil <= now && it->second.failedAttempts == 0)
+            {
+                it = loginAttempts.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
     auto &record = loginAttempts[ip];
     record.failedAttempts++;
     if (record.failedAttempts >= MAX_LOGIN_ATTEMPTS)
     {
         record.lockedUntil =
-            std::chrono::steady_clock::now() +
+            now +
             std::chrono::seconds(LOCKOUT_DURATION_SECONDS);
     }
 }
@@ -921,6 +941,23 @@ bool isApiRateLimited(const std::string &ip)
 {
     std::lock_guard<std::mutex> lock(apiRateLimitMutex);
     const auto now = std::chrono::steady_clock::now();
+
+    // Memory bounds: prune expired sliding windows if map grows to avoid RAM exhaustion
+    if (apiRateLimits.size() > 500)
+    {
+        for (auto it = apiRateLimits.begin(); it != apiRateLimits.end();)
+        {
+            if (now - it->second.windowStart >= std::chrono::seconds(60))
+            {
+                it = apiRateLimits.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
     auto &record = apiRateLimits[ip];
 
     if (record.windowStart.time_since_epoch().count() == 0 ||
@@ -2786,13 +2823,8 @@ int main()
 
     server.Get(
         "/api/history",
-        [](const httplib::Request &req, httplib::Response &res)
+        [](const httplib::Request &, httplib::Response &res)
         {
-            if (!isAdminAuthorized(req))
-            {
-                sendJson(res, 401, {{"ok", false}, {"error", "Admin authentication required."}});
-                return;
-            }
             sendJson(res, 200, {{"ok", true}, {"sessions", listConversationSessions()}});
         });
 
@@ -2803,12 +2835,12 @@ int main()
             setSecurityHeaders(res);
             if (!isAdminAuthorized(req))
             {
-                res.status = 401;
-                res.set_content("Admin authentication required.", "text/plain");
+                sendJson(res, 401, {{"ok", false}, {"error", "Admin authentication required."}});
                 return;
             }
+            res.set_header("Content-Disposition", "attachment; filename=\"chat_history.json\"");
             const std::string text = readFile(CHAT_HISTORY_FILE);
-            res.set_content(text, "text/plain");
+            res.set_content(text.empty() ? "[]" : text, "application/json; charset=UTF-8");
         });
 
     server.Post(
